@@ -96,23 +96,15 @@ class SpineForgePlanner:
             return
         self.ds = pydicom.dcmread(filepath)
         pixel_array = self.ds.pixel_array.astype(np.float32)
-        self.window_center = float(self.ds.get("WindowCenter", np.mean(pixel_array)))
-        self.window_width = float(self.ds.get("WindowWidth", np.ptp(pixel_array)))
-        self.apply_window(pixel_array)
+        norm_img = ((pixel_array - np.min(pixel_array)) / np.ptp(pixel_array) * 255).astype(np.uint8)
+        self.original_image = Image.fromarray(norm_img)
+        self.image = self.original_image
         spacing = self.ds.PixelSpacing
         self.pixel_spacing = [float(spacing[0]), float(spacing[1])]
         self.display_image()
 
-    def apply_window(self, pixel_array):
-        center = self.window_center
-        width = self.window_width
-        min_val = center - width / 2
-        max_val = center + width / 2
-        windowed = np.clip(pixel_array, min_val, max_val)
-        norm_img = ((windowed - min_val) / (max_val - min_val) * 255).astype(np.uint8)
-        self.original_image = Image.fromarray(norm_img)
-        self.image = self.original_image
-
+    
+    
     def copy_to_clipboard(self):
         text = ""
         for name, label in self.measurement_labels.items():
