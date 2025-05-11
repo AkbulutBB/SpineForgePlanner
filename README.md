@@ -1,5 +1,9 @@
 # SpineForgePlanner
  SpineForgePlanner
+
+![SpineForgeLogo (3)](https://github.com/user-attachments/assets/ada4c564-dc5b-4d59-95e4-8d423cec4b8b)
+
+ 
 🧠 SpineForgePlanner
 Version: 0.1
 Status: First Public Release
@@ -7,6 +11,9 @@ Website: https://SpineForge.org
 Releases: GitHub Releases
 Developer: Dr. Bahadır Akbulut, MD
 Contact: b.bahadirakbulut@gmail.com
+
+![WhatsApp Image 2025-05-11 at 11 43 30](https://github.com/user-attachments/assets/d3eac472-4f50-4ecd-8de4-ca0fe99d8bc4)
+
 
 📌 What is SpineForgePlanner?
 SpineForgePlanner is a lightweight tool for analyzing sagittal spinal alignment from DICOM images. Built for spine surgeons and researchers, it enables intuitive landmark placement and instant calculation of key radiographic parameters.
