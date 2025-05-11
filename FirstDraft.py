@@ -1,3 +1,6 @@
+import sys
+sys.setrecursionlimit(sys.getrecursionlimit() * 5)
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import pydicom
