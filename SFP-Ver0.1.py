@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-SpineForge Planner
+SpineForge Planner - Ver 0.1
 -----------------
 A specialized application for spine surgeons to measure and analyze spine parameters
 from DICOM and other medical images. This tool provides interactive measurement of 
