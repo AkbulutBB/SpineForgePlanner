@@ -157,6 +157,7 @@ class SpineForgePlanner:
         # Osteotomy Tab
         self.osteotomy_tab = tk.Frame(self.tab_control, bg="lightgray")
         self.tab_control.add(self.osteotomy_tab, text="Osteotomy")
+        self.setup_osteotomy_tab()  # Call our new setup function
         
         # Implant Tab
         self.implant_tab = tk.Frame(self.tab_control, bg="lightgray")
@@ -188,82 +189,6 @@ class SpineForgePlanner:
                     label, name = self.point_buttons[i + j]
                     tk.Button(row, text=label, width=18, command=lambda n=name: self.set_current_landmark(n)).pack(side="left", padx=2, pady=1)
 
-        # Setup Osteotomy options
-        osteotomy_frame = tk.Frame(self.osteotomy_tab, bg="lightgray")
-        osteotomy_frame.pack(pady=5, fill="x")
-        
-        # Osteotomy Type Selection
-        tk.Label(osteotomy_frame, text="Osteotomy Type:", bg="lightgray").pack(anchor="w", padx=5, pady=2)
-        self.osteotomy_type = tk.StringVar(value="SPO")
-        type_frame = tk.Frame(osteotomy_frame, bg="lightgray")
-        type_frame.pack(fill="x", padx=5, pady=2)
-        tk.Radiobutton(type_frame, text="Smith-Peterson (SPO)", variable=self.osteotomy_type, value="SPO", bg="lightgray").pack(anchor="w")
-        tk.Radiobutton(type_frame, text="Pedicle Subtraction (PSO)", variable=self.osteotomy_type, value="PSO", bg="lightgray").pack(anchor="w")
-        tk.Radiobutton(type_frame, text="Vertebral Column Resection (VCR)", variable=self.osteotomy_type, value="VCR", bg="lightgray").pack(anchor="w")
-        
-        # Osteotomy Level Selection
-        tk.Label(osteotomy_frame, text="Vertebral Level:", bg="lightgray").pack(anchor="w", padx=5, pady=2)
-        level_frame = tk.Frame(osteotomy_frame, bg="lightgray")
-        level_frame.pack(fill="x", padx=5, pady=2)
-        
-        self.level_var = tk.StringVar(value="L3")
-        self.level_dropdown = ttk.Combobox(level_frame, textvariable=self.level_var)
-        self.level_dropdown['values'] = ('T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5', 'S1')
-        self.level_dropdown.pack(side="left", fill="x", expand=True)
-        
-        # Number of levels for SPO
-        self.num_levels_label = tk.Label(osteotomy_frame, text="Number of Levels (SPO):", bg="lightgray")
-        self.num_levels_label.pack(anchor="w", padx=5, pady=2)
-        self.num_levels_var = tk.IntVar(value=1)
-        self.num_levels_spin = tk.Spinbox(osteotomy_frame, from_=1, to=6, textvariable=self.num_levels_var, width=5)
-        self.num_levels_spin.pack(anchor="w", padx=5, pady=2)
-        
-        # Osteotomy Type Selection (more detailed)
-        osteotomy_detail_frame = tk.Frame(osteotomy_frame, bg="lightgray")
-        osteotomy_detail_frame.pack(fill="x", padx=5, pady=5)
-        
-        # Add detailed selection for osteotomy subtype
-        tk.Label(osteotomy_detail_frame, text="Technique:", bg="lightgray").grid(row=0, column=0, sticky="w")
-        self.osteotomy_technique = tk.StringVar(value="Wedge")
-        technique_dropdown = ttk.Combobox(osteotomy_detail_frame, textvariable=self.osteotomy_technique, width=15)
-        technique_dropdown['values'] = ('Wedge', 'Resect', 'Open')
-        technique_dropdown.grid(row=0, column=1, padx=5, pady=2)
-        
-        # Side selection for asymmetric osteotomies
-        tk.Label(osteotomy_detail_frame, text="Side:", bg="lightgray").grid(row=1, column=0, sticky="w")
-        self.osteotomy_side = tk.StringVar(value="Symmetric")
-        side_dropdown = ttk.Combobox(osteotomy_detail_frame, textvariable=self.osteotomy_side, width=15)
-        side_dropdown['values'] = ('Symmetric', 'Left', 'Right')
-        side_dropdown.grid(row=1, column=1, padx=5, pady=2)
-        
-        # Correction Angle Options
-        correction_frame = tk.Frame(osteotomy_frame, bg="lightgray")
-        correction_frame.pack(fill="x", padx=5, pady=10)
-        
-        tk.Label(correction_frame, text="Expected Correction:", bg="lightgray").grid(row=0, column=0, sticky="w")
-        self.correction_label = tk.Label(correction_frame, text="10°", bg="white", width=10)
-        self.correction_label.grid(row=0, column=1, padx=5, pady=2)
-        
-        # Osteotomy Buttons
-        btn_frame = tk.Frame(osteotomy_frame, bg="lightgray")
-        btn_frame.pack(fill="x", padx=5, pady=10)
-        
-        self.draw_osteotomy_btn = tk.Button(btn_frame, text="Draw Osteotomy", command=self.draw_osteotomy)
-        self.draw_osteotomy_btn.pack(side="left", padx=5)
-        
-        self.apply_osteotomy_btn = tk.Button(btn_frame, text="Apply Correction", command=self.apply_osteotomy)
-        self.apply_osteotomy_btn.pack(side="left", padx=5)
-        
-        self.simulate_btn = tk.Button(btn_frame, text="Show Simulation", command=self.show_simulation_window)
-        self.simulate_btn.pack(side="left", padx=5)
-        
-        self.reset_osteotomy_btn = tk.Button(btn_frame, text="Reset", command=self.reset_osteotomy)
-        self.reset_osteotomy_btn.pack(side="left", padx=5)
-        
-        # Bind osteotomy type changes to update correction label
-        self.osteotomy_type.trace("w", self.update_correction_label)
-        self.num_levels_var.trace("w", self.update_correction_label)
-        
         # Implant options
         implant_frame = tk.Frame(self.implant_tab, bg="lightgray")
         implant_frame.pack(pady=5, fill="x")
@@ -508,6 +433,75 @@ class SpineForgePlanner:
         else:  # cage
             self.screw_params_frame.pack_forget()
             self.cage_params_frame.pack(fill="x", padx=5, pady=5)
+
+    # Replace the current osteotomy tab setup with this simplified version
+    def setup_osteotomy_tab(self):
+        """Setup the osteotomy tab with the three techniques"""
+        osteotomy_frame = tk.Frame(self.osteotomy_tab, bg="lightgray")
+        osteotomy_frame.pack(pady=5, fill="x")
+        
+        # Osteotomy Technique Selection
+        tk.Label(osteotomy_frame, text="Osteotomy Technique:", bg="lightgray", font=("Arial", 10, "bold")).pack(anchor="w", padx=5, pady=2)
+        self.osteotomy_technique = tk.StringVar(value="Wedge")
+        technique_frame = tk.Frame(osteotomy_frame, bg="lightgray")
+        technique_frame.pack(fill="x", padx=5, pady=2)
+        
+        tk.Radiobutton(technique_frame, text="Wedge Osteotomy", variable=self.osteotomy_technique, 
+                      value="Wedge", bg="lightgray").pack(anchor="w")
+        tk.Radiobutton(technique_frame, text="Resect Osteotomy", variable=self.osteotomy_technique, 
+                      value="Resect", bg="lightgray").pack(anchor="w")
+        tk.Radiobutton(technique_frame, text="Opening Osteotomy", variable=self.osteotomy_technique, 
+                      value="Open", bg="lightgray").pack(anchor="w")
+        
+        # Vertebral Level Selection
+        tk.Label(osteotomy_frame, text="Vertebral Level:", bg="lightgray").pack(anchor="w", padx=5, pady=(10,0))
+        level_frame = tk.Frame(osteotomy_frame, bg="lightgray")
+        level_frame.pack(fill="x", padx=5, pady=2)
+        
+        self.level_var = tk.StringVar(value="L3")
+        self.level_dropdown = ttk.Combobox(level_frame, textvariable=self.level_var)
+        self.level_dropdown['values'] = ('T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 
+                                        'L1', 'L2', 'L3', 'L4', 'L5', 'S1')
+        self.level_dropdown.pack(side="left", fill="x", expand=True)
+        
+        # Side Selection (Left/Right/Symmetric)
+        tk.Label(osteotomy_frame, text="Side:", bg="lightgray").pack(anchor="w", padx=5, pady=(10,0))
+        side_frame = tk.Frame(osteotomy_frame, bg="lightgray")
+        side_frame.pack(fill="x", padx=5, pady=2)
+        
+        self.osteotomy_side = tk.StringVar(value="Symmetric")
+        side_options = ["Symmetric", "Left", "Right"]
+        for option in side_options:
+            tk.Radiobutton(side_frame, text=option, variable=self.osteotomy_side, 
+                          value=option, bg="lightgray").pack(side="left", padx=5)
+        
+        # Expected Correction Display
+        correction_frame = tk.Frame(osteotomy_frame, bg="lightgray")
+        correction_frame.pack(fill="x", padx=5, pady=(15,5))
+        
+        tk.Label(correction_frame, text="Expected Correction:", bg="lightgray").pack(side="left", padx=5)
+        self.correction_label = tk.Label(correction_frame, text="10°", bg="white", width=8, relief="sunken")
+        self.correction_label.pack(side="left", padx=5)
+        
+        # Osteotomy Buttons
+        btn_frame = tk.Frame(osteotomy_frame, bg="lightgray")
+        btn_frame.pack(fill="x", padx=5, pady=(20,5))
+        
+        self.draw_osteotomy_btn = tk.Button(btn_frame, text="Draw Osteotomy", 
+                                          command=self.draw_osteotomy)
+        self.draw_osteotomy_btn.pack(side="left", padx=5)
+        
+        self.apply_osteotomy_btn = tk.Button(btn_frame, text="Apply Osteotomy", 
+                                           command=self.apply_osteotomy)
+        self.apply_osteotomy_btn.pack(side="left", padx=5)
+        
+        self.reset_osteotomy_btn = tk.Button(btn_frame, text="Reset", 
+                                          command=self.reset_osteotomy)
+        self.reset_osteotomy_btn.pack(side="left", padx=5)
+        
+        # Update correction label when technique or side changes
+        self.osteotomy_technique.trace("w", self.update_correction_label)
+        self.osteotomy_side.trace("w", self.update_correction_label)
 
     def place_cage(self):
         """Begin placing a cage/spacer on the image"""
@@ -1486,10 +1480,11 @@ class SpineForgePlanner:
             )
 
     def draw_osteotomy_lines(self):
+        """Draw osteotomy lines on the canvas"""
         # Helper function to convert image coordinates to canvas coordinates
         def scaled(pt):
             return pt[0] * self.zoom + self.offset[0], pt[1] * self.zoom + self.offset[1]
-            
+                
         # Draw points while creating the osteotomy
         for x, y in self.osteotomy_points:
             sx, sy = scaled((x, y))
@@ -1504,22 +1499,84 @@ class SpineForgePlanner:
                 sx2, sy2 = scaled((x2, y2))
                 self.canvas.create_line(sx1, sy1, sx2, sy2, fill='cyan', width=2)
         
-        # Draw saved osteotomy lines
+        # Draw saved osteotomy lines with appropriate colors and styles
         for line in self.osteotomy_lines:
-            type_color = {'SPO': 'green', 'PSO': 'orange', 'VCR': 'red'}
-            color = type_color.get(line["type"], 'cyan')
+            technique = line["technique"]
             
-            for i in range(len(line["points"]) - 1):
-                x1, y1 = line["points"][i]
-                x2, y2 = line["points"][i+1]
-                sx1, sy1 = scaled((x1, y1))
-                sx2, sy2 = scaled((x2, y2))
-                self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=2)
+            # Choose color based on technique
+            if technique == "Wedge":
+                color = 'green'
+            elif technique == "Resect":
+                color = 'magenta'
+            elif technique == "Open":
+                color = 'yellow'
+            else:
+                color = 'cyan'
+            
+            # Draw the osteotomy shape based on technique
+            if technique == "Wedge" and len(line["points"]) >= 3:
+                # Draw wedge shape - anterior point and two posterior points
+                points = line["points"]
+                for i in range(len(points)):
+                    pt1 = scaled(points[i])
+                    pt2 = scaled(points[(i+1) % len(points)])
+                    self.canvas.create_line(pt1[0], pt1[1], pt2[0], pt2[1], fill=color, width=2)
+                    
+                    # Draw bisecting line (as in your example image)
+                    if i == 0 and not line["applied"]:
+                        # Bisecting line from anterior point to middle of posterior line
+                        mid_x = (points[1][0] + points[2][0]) / 2
+                        mid_y = (points[1][1] + points[2][1]) / 2
+                        mid_pt = scaled((mid_x, mid_y))
+                        self.canvas.create_line(pt1[0], pt1[1], mid_pt[0], mid_pt[1], 
+                                               fill=color, width=1, dash=(4, 2))
+            
+            elif technique == "Resect" and len(line["points"]) >= 4:
+                # Draw resect shape - rectangle with two lines
+                points = line["points"]
+                # Draw inferior line
+                pt1, pt2 = scaled(points[0]), scaled(points[1])
+                self.canvas.create_line(pt1[0], pt1[1], pt2[0], pt2[1], fill=color, width=2)
+                # Draw superior line
+                pt3, pt4 = scaled(points[2]), scaled(points[3])
+                self.canvas.create_line(pt3[0], pt3[1], pt4[0], pt4[1], fill=color, width=2)
+                # Connect lines
+                if not line["applied"]:
+                    self.canvas.create_line(pt1[0], pt1[1], pt3[0], pt3[1], fill=color, width=1, dash=(4, 2))
+                    self.canvas.create_line(pt2[0], pt2[1], pt4[0], pt4[1], fill=color, width=1, dash=(4, 2))
+            
+            elif technique == "Open" and len(line["points"]) >= 2:
+                # Draw open line
+                pt1, pt2 = scaled(line["points"][0]), scaled(line["points"][1])
+                self.canvas.create_line(pt1[0], pt1[1], pt2[0], pt2[1], fill=color, width=2)
+                
+                # If not applied, add visual indicators for the opening
+                if not line["applied"]:
+                    # Vector perpendicular to the line
+                    dx = pt2[0] - pt1[0]
+                    dy = pt2[1] - pt1[1]
+                    length = math.sqrt(dx*dx + dy*dy)
+                    
+                    if length > 0:
+                        # Normalize and rotate 90 degrees (-dy, dx)
+                        opening = line.get("opening_amount", 20)  # Default opening
+                        nx = -dy/length * opening
+                        ny = dx/length * opening
+                        
+                        # Draw arrows indicating opening direction
+                        self.canvas.create_line(pt1[0], pt1[1], pt1[0]+nx, pt1[1]+ny, 
+                                               fill=color, width=1, arrow=tk.LAST)
+                        self.canvas.create_line(pt2[0], pt2[1], pt2[0]+nx, pt2[1]+ny, 
+                                               fill=color, width=1, arrow=tk.LAST)
             
             # Add text showing the osteotomy type and level
-            x, y = line["points"][0]
-            sx, sy = scaled((x, y))
-            self.canvas.create_text(sx, sy-10, text=f"{line['type']} at {line['level']}", fill=color, anchor="sw")
+            if len(line["points"]) > 0:
+                x, y = line["points"][0]
+                sx, sy = scaled((x, y))
+                status = "Applied" if line["applied"] else "Unapplied"
+                self.canvas.create_text(sx, sy-15, text=f"{technique} at {line['level']} - {status}", 
+                                       fill=color, anchor="sw")
+
 
     def draw_implants(self):
         # Helper function to convert image coordinates to canvas coordinates
@@ -1871,107 +1928,109 @@ class SpineForgePlanner:
             technique = osteotomy["technique"]
             points = osteotomy["points"]
             
-            if technique == "Wedge":
-                # Simulate wedge osteotomy by warping image
-                if len(points) >= 3:
-                    # Find the wedge boundaries
-                    min_x = min(p[0] for p in points)
-                    max_x = max(p[0] for p in points)
-                    apex_y = points[0][1]  # Anterior point Y
-                    
-                    # Height of the wedge at its peak
-                    wedge_height = int(osteotomy["expected_correction"] * 5)  # Scale correction to pixels
-                    
-                    # Warp the image by shifting pixels
-                    height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
-                    
-                    # Only move pixels above the osteotomy
-                    for x in range(width):
-                        # Skip pixels outside the wedge width
-                        if x < min_x or x > max_x:
-                            continue
-                            
-                        # Calculate shift amount at this x-coordinate (triangular wedge)
-                        x_ratio = 1.0 - abs(2.0 * (x - min_x) / (max_x - min_x) - 1.0)
-                        shift = int(wedge_height * x_ratio)
-                        
-                        # Shift all pixels above the apex
-                        for y in range(apex_y):
-                            new_y = y + shift
-                            if new_y < height:
-                                if len(img_array.shape) == 3:
-                                    img_array[y, x] = img_array[new_y, x]
-                                else:
-                                    img_array[y, x] = img_array[new_y, x]
-            
-            elif technique == "Resect":
-                # Similar effect, but with a full segment removal
-                if len(points) >= 4:
-                    top_left, top_right = points[2], points[3]
-                    bottom_left, bottom_right = points[0], points[1]
-                    
-                    # Get the dimensions of the resection
-                    resect_height = abs(top_left[1] - bottom_left[1])
-                    
-                    # Move all pixels above the resection down
-                    height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
-                    
-                    for x in range(width):
-                        # Only process columns that intersect the resection
-                        if x < min(top_left[0], bottom_left[0]) or x > max(top_right[0], bottom_right[0]):
-                            continue
-                            
-                        for y in range(top_left[1]):
-                            new_y = y + resect_height
-                            if new_y < height:
-                                if len(img_array.shape) == 3:
-                                    img_array[y, x] = img_array[new_y, x]
-                                else:
-                                    img_array[y, x] = img_array[new_y, x]
+            # Process based on technique and following the examples from your images
+            if technique == "Wedge" and len(points) >= 3:
+                # Get the three points defining the wedge
+                anterior = points[0]
+                lower_posterior = points[1]
+                upper_posterior = points[2]
                 
-            elif technique == "Open":
-                # Opening osteotomy - separates image at the line
-                if len(points) >= 2:
-                    start, end = points[0], points[1]
+                # Define wedge region
+                min_x = min(p[0] for p in points)
+                max_x = max(p[0] for p in points)
+                
+                # For wedge, we typically close the wedge by bringing the upper portion down
+                # This creates the appearance of correcting kyphosis 
+                height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
+                
+                # Calculate wedge properties
+                wedge_height = abs(upper_posterior[1] - lower_posterior[1])
+                apex_y = anterior[1]
+                
+                # Apply transformation - move everything above wedge
+                for x in range(width):
+                    # Only process within wedge region
+                    if x < min_x or x > max_x:
+                        continue
                     
-                    # Opening amount in pixels
-                    opening_height = int(osteotomy["expected_correction"] * 3)  # Scale to pixels
-                    
-                    # Move all pixels above the line up
-                    height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
-                    
-                    # Calculate line equation: y = mx + b
-                    if end[0] - start[0] == 0:  # Vertical line
-                        m = float('inf')
-                        b = 0
+                    # Calculate linear interpolation factor based on position within wedge
+                    if max_x == min_x:
+                        factor = 0
                     else:
-                        m = (end[1] - start[1]) / (end[0] - start[0])
-                        b = start[1] - m * start[0]
+                        factor = (x - min_x) / (max_x - min_x)
                     
-                    # For each column
-                    for x in range(width):
-                        # Only process relevant x range
-                        min_x, max_x = min(start[0], end[0]), max(start[0], end[0])
-                        if x < min_x or x > max_x:
+                    # Find the wedge height at this x position
+                    y_shift = int(wedge_height * (1 - factor))
+                    
+                    # Shift pixels above wedge downward
+                    for y in range(apex_y):
+                        if y + y_shift < height:
+                            if len(img_array.shape) == 3:
+                                img_array[y, x] = img_array[min(y + y_shift, height-1), x]
+                            else:
+                                img_array[y, x] = img_array[min(y + y_shift, height-1), x]
+            
+            elif technique == "Resect" and len(points) >= 4:
+                # Points should be: bottom-left, bottom-right, top-left, top-right
+                # or equivalently: inferior-anterior, inferior-posterior, superior-anterior, superior-posterior
+                
+                # Get resection rectangle bounds
+                min_y = min(points[0][1], points[1][1])
+                max_y = max(points[2][1], points[3][1])
+                resect_height = max_y - min_y
+                
+                height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
+                
+                # Apply transformation - remove resection area and join segments
+                for x in range(width):
+                    # Shift all pixels above resection down by resection height
+                    for y in range(min_y):
+                        new_y = y + resect_height
+                        if new_y < height:
+                            if len(img_array.shape) == 3:
+                                img_array[y, x] = img_array[new_y, x]
+                            else:
+                                img_array[y, x] = img_array[new_y, x]
+            
+            elif technique == "Open" and len(points) >= 2:
+                # Opening creates space between vertebrae
+                p1, p2 = points[0], points[1]
+                
+                # Calculate line properties
+                height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
+                
+                # Calculate line equation
+                if p2[0] - p1[0] == 0:  # Vertical line
+                    slope = float('inf')
+                    intercept = p1[0]
+                else:
+                    slope = (p2[1] - p1[1]) / (p2[0] - p1[0])
+                    intercept = p1[1] - slope * p1[0]
+                
+                # Calculate opening amount based on expected correction
+                opening_amount = int(osteotomy["expected_correction"] * 3)  # Scale to pixels
+                
+                # Create a copy of the image to work from
+                temp_array = np.copy(img_array)
+                
+                # Move pixels above the line up by opening_amount
+                for x in range(width):
+                    if slope != float('inf'):
+                        # Calculate y-value on the line at this x
+                        line_y = int(slope * x + intercept)
+                    else:
+                        # For vertical line
+                        if x != intercept:
                             continue
-                            
-                        # Calculate y value on the line
-                        if m == float('inf'):
-                            line_y = start[1]  # For vertical line
+                        line_y = height // 2
+                    
+                    # For pixels above the line, shift up
+                    for y in range(line_y):
+                        target_y = max(0, y - opening_amount)
+                        if len(img_array.shape) == 3:
+                            img_array[target_y, x] = temp_array[y, x]
                         else:
-                            line_y = int(m * x + b)
-                            
-                        # Move pixels above the line up by opening_height
-                        for y in range(line_y):
-                            if y < height and x < width:
-                                if len(img_array.shape) == 3:
-                                    # For color images
-                                    if y - opening_height >= 0:
-                                        img_array[y - opening_height, x] = img_array[y, x]
-                                else:
-                                    # For grayscale images
-                                    if y - opening_height >= 0:
-                                        img_array[y - opening_height, x] = img_array[y, x]
+                            img_array[target_y, x] = temp_array[y, x]
             
             osteotomy["applied"] = True
             applied_any = True
@@ -1979,6 +2038,7 @@ class SpineForgePlanner:
         if applied_any:
             # Update the simulated image
             self.simulated_image = Image.fromarray(img_array)
+            self.is_simulated = True
             
             # Update the measurements based on the simulated correction
             self.update_measurements(simulated=True)
@@ -2015,9 +2075,9 @@ class SpineForgePlanner:
         simulated_frame = tk.Frame(sim_window)
         simulated_frame.pack(side="right", fill="both", expand=True)
         
-        # Labels for the frames
-        tk.Label(original_frame, text="Original Image", font=("Arial", 14, "bold")).pack(pady=5)
-        tk.Label(simulated_frame, text="Simulated Correction", font=("Arial", 14, "bold")).pack(pady=5)
+        # Labels for the frames (exactly as shown in your images)
+        tk.Label(original_frame, text="Example: unapplied osteotomy", font=("Arial", 12, "bold")).pack(pady=5)
+        tk.Label(simulated_frame, text="Example: applied osteotomy", font=("Arial", 12, "bold")).pack(pady=5)
         
         # Display the original image
         original_canvas = tk.Canvas(original_frame, bg="black")
@@ -2040,56 +2100,20 @@ class SpineForgePlanner:
         self.sim_tk_img = ImageTk.PhotoImage(sim_img)
         
         # Show images on canvas
-        original_canvas.create_image(0, 0, anchor="nw", image=self.orig_tk_img)
-        simulated_canvas.create_image(0, 0, anchor="nw", image=self.sim_tk_img)
+        original_canvas.create_image(display_width//2, orig_height//2, anchor="center", image=self.orig_tk_img)
+        simulated_canvas.create_image(display_width//2, orig_height//2, anchor="center", image=self.sim_tk_img)
         
-        # Add measurement tables
-        orig_measure_frame = tk.Frame(original_frame, bg="white")
-        orig_measure_frame.pack(fill="x", padx=10, pady=10)
-        
-        sim_measure_frame = tk.Frame(simulated_frame, bg="white")
-        sim_measure_frame.pack(fill="x", padx=10, pady=10)
-        
-        # Headers
-        tk.Label(orig_measure_frame, text="Measurement", font=("Arial", 10, "bold"), bg="white").grid(row=0, column=0, sticky="w")
-        tk.Label(orig_measure_frame, text="Value", font=("Arial", 10, "bold"), bg="white").grid(row=0, column=1, sticky="w")
-        
-        tk.Label(sim_measure_frame, text="Measurement", font=("Arial", 10, "bold"), bg="white").grid(row=0, column=0, sticky="w")
-        tk.Label(sim_measure_frame, text="Value", font=("Arial", 10, "bold"), bg="white").grid(row=0, column=1, sticky="w")
-        
-        # Fill with measurements
-        row = 1
-        for name, label in self.measurement_labels.items():
-            value = label["text"]
-            if value != "--":
-                tk.Label(orig_measure_frame, text=name, bg="white").grid(row=row, column=0, sticky="w")
-                tk.Label(orig_measure_frame, text=value, bg="white").grid(row=row, column=1, sticky="w")
-                
-                # Corresponding simulated value
-                sim_value = self.simulated_measurements[name]["text"]
-                tk.Label(sim_measure_frame, text=name, bg="white").grid(row=row, column=0, sticky="w")
-                
-                # Color code the changes
-                if value != sim_value and value != "--" and sim_value != "--":
-                    try:
-                        orig_val = float(value.rstrip("°").rstrip("mm"))
-                        sim_val = float(sim_value.rstrip("°").rstrip("mm"))
-                        
-                        if "SVA" in name or "Pelvic Tilt" in name:
-                            # For these values, lower is generally better
-                            color = "green" if sim_val < orig_val else "red" if sim_val > orig_val else "black"
-                        else:
-                            # For other values, approach to normal range is better
-                            # This is simplistic - would need actual normal ranges
-                            color = "green" if abs(sim_val - 40) < abs(orig_val - 40) else "red"
-                            
-                        tk.Label(sim_measure_frame, text=sim_value, bg="white", fg=color).grid(row=row, column=1, sticky="w")
-                    except ValueError:
-                        tk.Label(sim_measure_frame, text=sim_value, bg="white").grid(row=row, column=1, sticky="w")
-                else:
-                    tk.Label(sim_measure_frame, text=sim_value, bg="white").grid(row=row, column=1, sticky="w")
-                
-                row += 1
+        # Button to continue planning with the simulated result
+        def accept_simulation():
+            self.image = self.simulated_image.copy()
+            self.is_simulated = True
+            self.display_image()
+            sim_window.destroy()
+            messagebox.showinfo("Simulation Applied", 
+                              "The simulated correction has been applied. You can now continue planning.")
+            
+        tk.Button(sim_window, text="Accept Simulation", command=accept_simulation, 
+                 font=("Arial", 12), bg="#4CAF50", fg="white").pack(pady=20)
         
         # Button to continue planning with the simulated result
         def accept_simulation():
@@ -2344,28 +2368,24 @@ class SpineForgePlanner:
             messagebox.showerror("Error", f"Failed to export STL: {str(e)}")
 
     def update_correction_label(self, *args):
-        """Update the expected correction angle label based on selected osteotomy type and number of levels"""
-        osteotomy_type = self.osteotomy_type.get()
+        """Update the expected correction angle label based on selected osteotomy technique and side"""
         technique = self.osteotomy_technique.get()
         side = self.osteotomy_side.get()
         
-        # Base correction values
-        correction = 0
-        if osteotomy_type == "SPO":
-            correction = 10 * self.num_levels_var.get()
-        elif osteotomy_type == "PSO":
-            correction = 30
-        elif osteotomy_type == "VCR":
-            correction = 45
-            
+        # Base correction values from Surgimap documentation
+        if technique == "Wedge":
+            correction = 10  # Approx 10° per level for wedge (SPO)
+        elif technique == "Resect":
+            correction = 30  # Approx 30° for resect (PSO)
+        elif technique == "Open":
+            correction = 8   # Approx 8° for opening osteotomy
+        else:
+            correction = 0
+        
         # Adjust for asymmetric osteotomies
         if side != "Symmetric":
-            correction *= 0.7
-            
-        # Adjust for technique variations
-        if technique == "Open":
-            correction *= 0.8  # Opening osteotomies typically achieve less correction
-            
+            correction *= 0.7  # Reduced correction for asymmetric osteotomies
+        
         # Update the label
         self.correction_label.config(text=f"{correction:.1f}°")
         
