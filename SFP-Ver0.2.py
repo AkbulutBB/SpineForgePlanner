@@ -88,11 +88,15 @@ class SpineForgePlanner:
         self.rod_line = None
         self.rod_model = None
         
-        # Now create the UI elements
-        # First, create the sidebar
-        self.sidebar = tk.Frame(root, width=400, bg="lightgray")
+        # Create a main frame that will contain all UI elements
+        self.main_frame = tk.Frame(root)
+        self.main_frame.pack(fill="both", expand=True)
+        
+        # Now create the UI elements with the new layout
+        # Left sidebar for tools
+        self.sidebar = tk.Frame(self.main_frame, width=400, bg="lightgray")
         self.sidebar.pack(side="left", fill="y")
-
+    
         # Create the status label
         self.status_label = tk.Label(self.sidebar, text="", bg="lightgray", fg="green", font=("Arial", 10))
         self.status_label.pack(pady=(5,0))
@@ -265,28 +269,79 @@ class SpineForgePlanner:
         tk.Label(implant_frame, text="Implant Type:", bg="lightgray").pack(anchor="w", padx=5)
         
         self.implant_type = tk.StringVar(value="screw")
-        tk.Radiobutton(implant_frame, text="Pedicle Screw", variable=self.implant_type, value="screw", bg="lightgray").pack(anchor="w", padx=20)
-        tk.Radiobutton(implant_frame, text="Cage/Spacer", variable=self.implant_type, value="cage", bg="lightgray").pack(anchor="w", padx=20)
+        tk.Radiobutton(implant_frame, text="Pedicle Screw", variable=self.implant_type, value="screw", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
+        tk.Radiobutton(implant_frame, text="Cage/Spacer", variable=self.implant_type, value="cage", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
         
-        tk.Label(implant_frame, text="Screw Parameters:", bg="lightgray").pack(anchor="w", padx=5, pady=(10,0))
+        # Vertebral Level Selection - common for both screws and cages
+        tk.Label(implant_frame, text="Vertebral Level:", bg="lightgray").pack(anchor="w", padx=5, pady=(10,0))
+        level_frame = tk.Frame(implant_frame, bg="lightgray")
+        level_frame.pack(fill="x", padx=5, pady=2)
         
-        screw_params_frame = tk.Frame(implant_frame, bg="lightgray")
-        screw_params_frame.pack(fill="x", padx=5, pady=5)
+        self.level_var = tk.StringVar(value="L3")
+        self.level_dropdown = ttk.Combobox(level_frame, textvariable=self.level_var)
+        self.level_dropdown['values'] = ('T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5', 'S1')
+        self.level_dropdown.pack(side="left", fill="x", expand=True)
         
-        tk.Label(screw_params_frame, text="Diameter (mm):", bg="lightgray").grid(row=0, column=0, sticky="w")
+        # Frame for screw parameters
+        self.screw_params_frame = tk.Frame(implant_frame, bg="lightgray")
+        self.screw_params_frame.pack(fill="x", padx=5, pady=5)
+        
+        tk.Label(self.screw_params_frame, text="Screw Parameters:", bg="lightgray").pack(anchor="w", pady=(5,0))
+        
+        screw_options_frame = tk.Frame(self.screw_params_frame, bg="lightgray")
+        screw_options_frame.pack(fill="x", padx=5, pady=5)
+        
+        tk.Label(screw_options_frame, text="Diameter (mm):", bg="lightgray").grid(row=0, column=0, sticky="w")
         self.screw_diameter = tk.StringVar(value="6.5")
-        diameter_entry = ttk.Combobox(screw_params_frame, textvariable=self.screw_diameter, width=5)
+        diameter_entry = ttk.Combobox(screw_options_frame, textvariable=self.screw_diameter, width=5)
         diameter_entry['values'] = ('4.5', '5.0', '5.5', '6.0', '6.5', '7.0', '7.5', '8.0')
         diameter_entry.grid(row=0, column=1, padx=5, pady=2)
         
-        tk.Label(screw_params_frame, text="Length (mm):", bg="lightgray").grid(row=1, column=0, sticky="w")
+        tk.Label(screw_options_frame, text="Length (mm):", bg="lightgray").grid(row=1, column=0, sticky="w")
         self.screw_length = tk.StringVar(value="45")
-        length_entry = ttk.Combobox(screw_params_frame, textvariable=self.screw_length, width=5)
+        length_entry = ttk.Combobox(screw_options_frame, textvariable=self.screw_length, width=5)
         length_entry['values'] = ('30', '35', '40', '45', '50', '55', '60')
         length_entry.grid(row=1, column=1, padx=5, pady=2)
         
-        self.place_screw_button = tk.Button(implant_frame, text="Place Screw", command=self.place_screw)
-        self.place_screw_button.pack(pady=10)
+        self.place_screw_button = tk.Button(self.screw_params_frame, text="Place Screw", command=self.place_screw)
+        self.place_screw_button.pack(pady=5)
+        
+        # Frame for cage parameters
+        self.cage_params_frame = tk.Frame(implant_frame, bg="lightgray")
+        self.cage_params_frame.pack(fill="x", padx=5, pady=5)
+        self.cage_params_frame.pack_forget()  # Initially hidden
+        
+        tk.Label(self.cage_params_frame, text="Cage Parameters:", bg="lightgray").pack(anchor="w", pady=(5,0))
+        
+        cage_options_frame = tk.Frame(self.cage_params_frame, bg="lightgray")
+        cage_options_frame.pack(fill="x", padx=5, pady=5)
+        
+        tk.Label(cage_options_frame, text="Width (mm):", bg="lightgray").grid(row=0, column=0, sticky="w")
+        self.cage_width = tk.StringVar(value="12")
+        cage_width_entry = ttk.Combobox(cage_options_frame, textvariable=self.cage_width, width=5)
+        cage_width_entry['values'] = ('8', '9', '10', '11', '12', '13', '14')
+        cage_width_entry.grid(row=0, column=1, padx=5, pady=2)
+        
+        tk.Label(cage_options_frame, text="Length (mm):", bg="lightgray").grid(row=1, column=0, sticky="w")
+        self.cage_length = tk.StringVar(value="28")
+        cage_length_entry = ttk.Combobox(cage_options_frame, textvariable=self.cage_length, width=5)
+        cage_length_entry['values'] = ('22', '24', '26', '28', '30', '32')
+        cage_length_entry.grid(row=1, column=1, padx=5, pady=2)
+        
+        tk.Label(cage_options_frame, text="Height (mm):", bg="lightgray").grid(row=2, column=0, sticky="w")
+        self.cage_height = tk.StringVar(value="10")
+        cage_height_entry = ttk.Combobox(cage_options_frame, textvariable=self.cage_height, width=5)
+        cage_height_entry['values'] = ('8', '9', '10', '11', '12', '13', '14')
+        cage_height_entry.grid(row=2, column=1, padx=5, pady=2)
+        
+        tk.Label(cage_options_frame, text="Lordosis (°):", bg="lightgray").grid(row=3, column=0, sticky="w")
+        self.cage_lordosis = tk.StringVar(value="6")
+        cage_lordosis_entry = ttk.Combobox(cage_options_frame, textvariable=self.cage_lordosis, width=5)
+        cage_lordosis_entry['values'] = ('0', '4', '6', '8', '10', '12', '15')
+        cage_lordosis_entry.grid(row=3, column=1, padx=5, pady=2)
+        
+        self.place_cage_button = tk.Button(self.cage_params_frame, text="Place Cage", command=self.place_cage)
+        self.place_cage_button.pack(pady=5)
         
         # Rod Export Options
         rod_frame = tk.Frame(self.rod_tab, bg="lightgray")
@@ -314,13 +369,25 @@ class SpineForgePlanner:
         
         self.export_stl_button = tk.Button(rod_frame, text="Export as STL", command=self.export_rod_as_stl)
         self.export_stl_button.pack(pady=5)
-
-        # Display area for measurements - SCROLLABLE VERSION
-        self.info_label = tk.Label(self.sidebar, text="Measurements:", bg="lightgray")
+        
+        # Center panel for the image
+        self.center_panel = tk.Frame(self.main_frame)
+        self.center_panel.pack(side="left", fill="both", expand=True)
+        
+        # Canvas to show image
+        self.canvas = tk.Canvas(self.center_panel, bg="black", cursor="cross")
+        self.canvas.pack(fill="both", expand=True)
+        
+        # Right sidebar for measurements and results
+        self.right_sidebar = tk.Frame(self.main_frame, width=350, bg="lightgray")
+        self.right_sidebar.pack(side="right", fill="y")
+        
+        # Add measurements header
+        self.info_label = tk.Label(self.right_sidebar, text="Measurements:", bg="lightgray")
         self.info_label.pack(pady=5)
         
-        # Create a frame to hold the scrollable area
-        measurements_container = tk.Frame(self.sidebar, bg="white")
+        # Create a frame to hold the scrollable area for measurements
+        measurements_container = tk.Frame(self.right_sidebar, bg="white")
         measurements_container.pack(fill="x", padx=5, pady=5, expand=True)
         
         # Add scrollbar
@@ -355,9 +422,11 @@ class SpineForgePlanner:
         
         # Mouse wheel scrolling
         def _on_mousewheel(event):
-            measurements_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-            
-        measurements_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            widget = event.widget
+            if widget == measurements_canvas:
+                measurements_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                
+        measurements_canvas.bind("<MouseWheel>", _on_mousewheel)
         
         # Add measurements
         measurement_names = [
@@ -390,17 +459,21 @@ class SpineForgePlanner:
             val_label.pack(side="left")
             self.simulated_measurements[name] = val_label
         
+        # Implant summary section
+        self.implant_summary_label = tk.Label(self.right_sidebar, text="Implants:", bg="lightgray")
+        self.implant_summary_label.pack(pady=(20,5))
+        
+        # Frame for implant list
+        self.implant_list_frame = tk.Frame(self.right_sidebar, bg="white")
+        self.implant_list_frame.pack(fill="x", padx=5, pady=5)
+        
         # Need to update for full scrollable height
         def _update_scroll_region(event=None):
             measurements_canvas.update_idletasks()  # Make sure everything is measured correctly
             measurements_canvas.configure(scrollregion=measurements_canvas.bbox("all"))
-            
+        
         self.root.after(100, _update_scroll_region)  # Update after window fully loads
-
-        # Canvas to show image
-        self.canvas = tk.Canvas(root, bg="black", cursor="cross")
-        self.canvas.pack(fill="both", expand=True)
-
+    
         # Wait for all components to be created before setting up event bindings
         self.root.update()
 
@@ -420,6 +493,29 @@ class SpineForgePlanner:
         
         # Set initial instruction
         self.info_label.config(text="Load a DICOM image to begin")
+
+    def update_implant_options(self):
+        """Show/hide appropriate parameter frames based on selected implant type"""
+        implant_type = self.implant_type.get()
+        
+        if implant_type == "screw":
+            self.screw_params_frame.pack(fill="x", padx=5, pady=5)
+            self.cage_params_frame.pack_forget()
+        else:  # cage
+            self.screw_params_frame.pack_forget()
+            self.cage_params_frame.pack(fill="x", padx=5, pady=5)
+
+    def place_cage(self):
+        """Begin placing a cage/spacer on the image"""
+        self.current_screw = "placing_cage"
+        self.osteotomy_points = []
+        level = self.level_var.get()
+        messagebox.showinfo("Place Cage", 
+            f"Click 4 points to define the cage at {level} level: \n"
+            f"1) Left corner of inferior endplate\n"
+            f"2) Right corner of inferior endplate\n"
+            f"3) Left corner of superior endplate\n"
+            f"4) Right corner of superior endplate")
 
     def create_outlined_text(self, x, y, text, fill_color, font_size, tags):
         """Create text with white/black outline for better visibility on any background"""
@@ -612,6 +708,9 @@ class SpineForgePlanner:
     def display_image(self):
         if self.image is None:
             return
+        # Make sure implant summary is up to date
+        if hasattr(self, 'implant_list_frame'):
+            self.update_implant_summary()
         
         try:
             resized = self.image.resize((int(self.image.width * self.zoom), int(self.image.height * self.zoom)))
@@ -656,6 +755,40 @@ class SpineForgePlanner:
                 self.draw_complete_osteotomy()
                 
             self.display_image()
+            
+        elif self.current_screw == "placing_cage":
+            x = int((event.x - self.offset[0]) / self.zoom)
+            y = int((event.y - self.offset[1]) / self.zoom)
+            
+            self.osteotomy_points.append((x, y))
+            self.display_image()
+            
+            # Once we have 4 points for the cage
+            if len(self.osteotomy_points) == 4:
+                width = float(self.cage_width.get())
+                length = float(self.cage_length.get())
+                height = float(self.cage_height.get())
+                lordosis = float(self.cage_lordosis.get())
+                level = self.level_var.get()
+                
+                self.cages.append({
+                    "corners": self.osteotomy_points.copy(),
+                    "width": width,
+                    "length": length,
+                    "height": height,
+                    "lordosis": lordosis,
+                    "level": level
+                })
+                
+                self.osteotomy_points = []
+                self.current_screw = None
+                messagebox.showinfo("Cage Placed", 
+                    f"Cage placed at {level} - {width}×{length}×{height}mm with {lordosis}° lordosis")
+                self.display_image()
+                
+                # Update implant summary
+                self.update_implant_summary()
+                
         elif self.current_screw == "placing":
             x = int((event.x - self.offset[0]) / self.zoom)
             y = int((event.y - self.offset[1]) / self.zoom)
@@ -686,6 +819,65 @@ class SpineForgePlanner:
                 self.current_screw = None
                 messagebox.showinfo("Screw Placed", f"Screw placed at {self.level_var.get()} - Ø{diameter}mm x {length}mm")
                 self.display_image()
+                
+                self.update_implant_summary()
+
+    def update_implant_summary(self):
+        """Update the implant summary list in the right sidebar"""
+        # Clear existing items
+        for widget in self.implant_list_frame.winfo_children():
+            widget.destroy()
+            
+        # Add screws to summary
+        if self.screws:
+            tk.Label(self.implant_list_frame, text="Screws:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w")
+            for i, screw in enumerate(self.screws):
+                level = screw.get("level", "")
+                diameter = screw.get("diameter", "")
+                length = screw.get("length", "")
+                
+                screw_frame = tk.Frame(self.implant_list_frame, bg="white")
+                screw_frame.pack(fill="x", pady=1)
+                
+                tk.Label(screw_frame, text=f"{i+1}. {level} - Ø{diameter}×{length}mm", 
+                       bg="white").pack(side="left")
+                
+                # Add delete button
+                tk.Button(screw_frame, text="×", command=lambda idx=i: self.delete_implant("screw", idx),
+                        bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
+        
+        # Add cages to summary
+        if self.cages:
+            tk.Label(self.implant_list_frame, text="Cages:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", pady=(10,0))
+            for i, cage in enumerate(self.cages):
+                level = cage.get("level", "")
+                width = cage.get("width", "")
+                length = cage.get("length", "")
+                height = cage.get("height", "")
+                lordosis = cage.get("lordosis", "")
+                
+                cage_frame = tk.Frame(self.implant_list_frame, bg="white")
+                cage_frame.pack(fill="x", pady=1)
+                
+                tk.Label(cage_frame, text=f"{i+1}. {level} - {width}×{length}×{height}mm {lordosis}°", 
+                       bg="white").pack(side="left")
+                
+                # Add delete button
+                tk.Button(cage_frame, text="×", command=lambda idx=i: self.delete_implant("cage", idx),
+                        bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
+    
+    def delete_implant(self, implant_type, index):
+        """Remove an implant from the list and update display"""
+        try:
+            if implant_type == "screw" and 0 <= index < len(self.screws):
+                del self.screws[index]
+            elif implant_type == "cage" and 0 <= index < len(self.cages):
+                del self.cages[index]
+                
+            self.update_implant_summary()
+            self.display_image()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete implant: {str(e)}")
 
     def draw_landmarks(self):
         # Helper function to convert image coordinates to canvas coordinates
@@ -1095,6 +1287,36 @@ class SpineForgePlanner:
             length = int(screw.get("length", 0))
             self.canvas.create_text(sx1+5, sy1-5, text=f"{level} Ø{diameter}x{length}mm", fill='white', anchor="sw")
 
+        # Draw cages
+        for cage in self.cages:
+            corners = cage["corners"]
+            level = cage.get("level", "")
+            width = cage.get("width", "")
+            length = cage.get("length", "")
+            height = cage.get("height", "")
+            lordosis = cage.get("lordosis", "")
+            
+            # Draw the cage outline
+            polygon_points = []
+            for x, y in corners:
+                sx, sy = scaled((x, y))
+                polygon_points.extend([sx, sy])
+                
+            # Draw the cage polygon with semi-transparent fill
+            self.canvas.create_polygon(polygon_points, outline='orange', fill='orange', 
+                                     stipple='gray50', width=2)
+            
+            # Label the cage
+            center_x = sum(p[0] for p in corners) / len(corners)
+            center_y = sum(p[1] for p in corners) / len(corners)
+            sc_x, sc_y = scaled((center_x, center_y))
+            
+            # Draw the label with white background for visibility
+            self.canvas.create_rectangle(sc_x-50, sc_y-10, sc_x+130, sc_y+10, 
+                                       fill='black', stipple='gray50')
+            self.canvas.create_text(sc_x, sc_y, text=f"{level} Cage {width}×{length}×{height}mm {lordosis}°", 
+                                  fill='yellow', anchor="center")
+
     def draw_rod(self):
         if not self.rod_line:
             return
@@ -1122,25 +1344,37 @@ class SpineForgePlanner:
             x = xy_points[:, 0]
             y = xy_points[:, 1]
             
-            # Create the spline
-            tck, u = splprep([x, y], s=0)
-            unew = np.linspace(0, 1, 100)
-            out = splev(unew, tck)
-            spline_points = list(zip(out[0], out[1]))
+            # Check if we have enough unique points for a spline
+            unique_points = len(np.unique(xy_points, axis=0))
             
-            # Draw the spline
-            for i in range(len(spline_points) - 1):
-                x1, y1 = spline_points[i]
-                x2, y2 = spline_points[i+1]
-                sx1, sy1 = scaled((x1, y1))
-                sx2, sy2 = scaled((x2, y2))
-                self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=float(diameter), smooth=True)
+            # Create the spline if we have enough unique points
+            if unique_points >= 3:  # Need at least 3 unique points for cubic spline
+                tck, u = splprep([x, y], s=0, k=min(unique_points-1, 3))  # k must be < unique_points
+                unew = np.linspace(0, 1, 100)
+                out = splev(unew, tck)
+                spline_points = list(zip(out[0], out[1]))
+                
+                # Draw the spline
+                for i in range(len(spline_points) - 1):
+                    x1, y1 = spline_points[i]
+                    x2, y2 = spline_points[i+1]
+                    sx1, sy1 = scaled((x1, y1))
+                    sx2, sy2 = scaled((x2, y2))
+                    self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=float(diameter), smooth=True)
+            else:
+                # Not enough unique points for a spline, draw straight lines
+                for i in range(len(points) - 1):
+                    x1, y1 = points[i]
+                    x2, y2 = points[i+1]
+                    sx1, sy1 = scaled((x1, y1))
+                    sx2, sy2 = scaled((x2, y2))
+                    self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=float(diameter))
             
             # Add text with rod info
             x, y = points[0]
             sx, sy = scaled((x, y))
             self.canvas.create_text(sx, sy-10, text=f"{side} Rod Ø{diameter}mm", fill=color, anchor="sw")
-            
+    
     def calculate_angle(self, p1, p2):
         dx = (p2[0] - p1[0]) * self.pixel_spacing[1]
         dy = (p2[1] - p1[1]) * self.pixel_spacing[0]
@@ -1601,9 +1835,10 @@ class SpineForgePlanner:
         """Begin placing a screw on the image"""
         self.current_screw = "placing"
         self.osteotomy_points = []
+        level = self.level_var.get()
         messagebox.showinfo("Place Screw", 
-            f"Click to set the screw head/entry point at {self.level_var.get()}, then click to set the trajectory/tip.")
-    
+            f"Click to set the screw head/entry point at {level}, then click to set the trajectory/tip.")
+
     def generate_rod_model(self):
         """Generate a rod model based on placed screw heads"""
         if not self.screws:
@@ -1655,12 +1890,31 @@ class SpineForgePlanner:
             
             # Create smoother curve with spline interpolation
             if len(points) >= 2:
-                # Create a spline through the points
-                tck, u = splprep([points[:, 0], points[:, 1]], s=0)
-                
-                # Sample points along the spline
-                u_new = np.linspace(0, 1, 100)
-                new_points = np.array(splev(u_new, tck)).T
+                # Check if we have enough unique points for a spline
+                unique_points = len(np.unique(points, axis=0))
+                if unique_points >= 3:
+                    # Create a spline through the points
+                    tck, u = splprep([points[:, 0], points[:, 1]], s=0)
+                    
+                    # Sample points along the spline
+                    u_new = np.linspace(0, 1, 100)
+                    new_points = np.array(splev(u_new, tck)).T
+                else:
+                    # Not enough unique points, use linear interpolation
+                    t = np.linspace(0, 1, 100)
+                    new_points = np.zeros((100, 2))
+                    
+                    # Simple linear interpolation between available points
+                    for i in range(100):
+                        idx = i * (len(points) - 1) / 99  # Map 0-99 to 0-(len(points)-1)
+                        idx_low = int(np.floor(idx))
+                        idx_high = int(np.ceil(idx))
+                        if idx_low == idx_high:
+                            new_points[i] = points[idx_low]
+                        else:
+                            weight = idx - idx_low
+                            new_points[i] = (1 - weight) * points[idx_low] + weight * points[idx_high]
+        
                 
                 # Create a 3D representation (add z-coordinate)
                 # Here we're creating a simple 2.5D model since we only have a 2D image
