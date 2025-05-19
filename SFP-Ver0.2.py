@@ -823,6 +823,9 @@ class SpineForgePlanner:
                 
                 self.osteotomy_points = []
                 self.current_screw = None
+                
+                self.end_persistent_instruction()
+                
                 self.show_status(
                     f"Screw placed at {self.level_var.get()} - Ø{diameter}mm x {length}mm", "success")
 
@@ -832,9 +835,12 @@ class SpineForgePlanner:
                 
     def setup_status_area(self):
         """Set up the status notification area in the UI"""
-        # Create a frame for status messages at the top of the right sidebar
+        # Create a fixed-height frame for status messages at the top of the right sidebar
         self.status_area = tk.Frame(self.right_sidebar, bg="#333333", height=60)
         self.status_area.pack(fill="x", side="top", padx=5, pady=5)
+        
+        # Set width and propagate properties to maintain consistent size
+        self.status_area.pack_propagate(False)  # Prevent size changes based on content
         
         # Status message label with larger font
         self.status_message = tk.Label(self.status_area, text="", font=("Arial", 12, "bold"), 
@@ -855,28 +861,44 @@ class SpineForgePlanner:
         
         # Message queue for the log
         self.message_queue = []
+        
+        # Keep track of persistent instructions
+        self.persistent_instruction = False
+        self.clear_timer = None
 
-    def show_status(self, message, message_type="info", duration=5000):
+    def show_status(self, message, message_type="info", duration=5000, persistent=False):
         """
-        Display a status message instead of showing a messagebox
+        Display a status message in the fixed status area without affecting the rest of the UI
         
         Args:
             message: The message to display
             message_type: 'info', 'error', 'success'
             duration: How long to display the message prominently (ms)
+            persistent: If True, message stays until explicitly cleared or procedure complete
         """
+        # Cancel any pending clear operation
+        if hasattr(self, 'clear_timer') and self.clear_timer is not None:
+            self.root.after_cancel(self.clear_timer)
+            self.clear_timer = None
+        
         # Define colors for different message types
         colors = {
             "info": {"bg": "#2980B9", "fg": "#FFFFFF"},    # Blue
             "error": {"bg": "#E74C3C", "fg": "#FFFFFF"},   # Red
-            "success": {"bg": "#27AE60", "fg": "#FFFFFF"}  # Green
+            "success": {"bg": "#27AE60", "fg": "#FFFFFF"}, # Green
+            "instruction": {"bg": "#8E44AD", "fg": "#FFFFFF"}  # Purple for instructions
         }
+        
+        # Use instruction type for persistent messages
+        if persistent:
+            message_type = "instruction"
+            self.persistent_instruction = True
         
         # Get colors for this message type
         bg_color = colors.get(message_type, colors["info"])["bg"]
         fg_color = colors.get(message_type, colors["info"])["fg"]
         
-        # Update the status message
+        # Only update the status message content and colors
         self.status_message.config(text=message, bg=bg_color, fg=fg_color)
         self.status_area.config(bg=bg_color)
         
@@ -888,81 +910,149 @@ class SpineForgePlanner:
         # Keep only the 3 most recent messages
         self.message_queue = self.message_queue[:3]
         
-        # Update log labels
+        # Update log labels without affecting layout
         for i, label in enumerate(self.log_labels):
             if i < len(self.message_queue):
                 label.config(text=self.message_queue[i])
             else:
                 label.config(text="")
         
-        # Flash the status area to draw attention
-        def flash_status(count=2, interval=600):
+        # Flash the status area to draw attention (only visual change, no layout)
+        def flash_status(count=2, interval=500):
             if count > 0:
-                current_bg = self.status_area.cget("bg")
+                current_bg = self.status_message.cget("bg")
                 new_bg = "#FFFFFF" if current_bg != "#FFFFFF" else bg_color
-                self.status_area.config(bg=new_bg)
+                # Only change colors, not structure
                 self.status_message.config(bg=new_bg)
                 self.root.after(interval, lambda: flash_status(count-1, interval))
             else:
                 # Reset to normal after flashing
-                self.status_area.config(bg=bg_color)
                 self.status_message.config(bg=bg_color)
                 
-                # Schedule clearing the prominent message after duration
-                self.root.after(duration, self.clear_status)
+                # Schedule clearing the prominent message after duration ONLY if not persistent
+                if not persistent:
+                    self.clear_timer = self.root.after(duration, self.clear_status)
         
-        # Start flashing
-        flash_status()
-
+        # Start flashing only if not already showing an error and not a persistent message
+        if (message_type != "error" or not hasattr(self, '_showing_error')) and not persistent:
+            flash_status()
+    
     def clear_status(self):
         """Clear the prominent status message but keep the log"""
-        self.status_message.config(text="", bg="#333333")
-        self.status_area.config(bg="#333333")
+        # Only clear if not in the middle of a persistent instruction
+        if not self.persistent_instruction:
+            self.status_message.config(text="", bg="#333333")
+            self.status_area.config(bg="#333333")
+            if hasattr(self, 'clear_timer'):
+                self.clear_timer = None
+    
+    def end_persistent_instruction(self):
+        """Call this when a user completes a procedure requiring instructions"""
+        self.persistent_instruction = False
+        self.clear_status()
 
     def update_implant_summary(self):
         """Update the implant summary list in the right sidebar"""
         # Clear existing items
         for widget in self.implant_list_frame.winfo_children():
             widget.destroy()
+        
+        # Order vertebral levels from cranial to caudal
+        def vertebral_level_order(level_str):
+            if not level_str:
+                return 999  # Put empty levels at the end
             
-        # Add screws to summary
+            # Extract the prefix and number
+            if level_str.startswith('C'):
+                prefix_value = 0
+            elif level_str.startswith('T'):
+                prefix_value = 100
+            elif level_str.startswith('L'):
+                prefix_value = 200
+            elif level_str.startswith('S'):
+                prefix_value = 300
+            else:
+                return 999  # Unknown prefix
+            
+            # Extract the numeric part
+            try:
+                number = int(''.join(filter(str.isdigit, level_str)))
+                return prefix_value + number
+            except ValueError:
+                return prefix_value + 99  # No numeric part
+        
+        # Configure scrollable frame
+        canvas = tk.Canvas(self.implant_list_frame, bg="white")
+        scrollbar = tk.Scrollbar(self.implant_list_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg="white")
+        
+        # Bind scrollable frame to canvas
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack scrollbar and canvas
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Add screws to summary, sorted by vertebral level
         if self.screws:
-            tk.Label(self.implant_list_frame, text="Screws:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w")
-            for i, screw in enumerate(self.screws):
+            tk.Label(scrollable_frame, text="Screws:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w")
+            
+            # Sort screws from cranial to caudal
+            sorted_screws = sorted(enumerate(self.screws), 
+                                   key=lambda x: vertebral_level_order(x[1].get("level", "")))
+            
+            for i, (original_idx, screw) in enumerate(sorted_screws):
                 level = screw.get("level", "")
                 diameter = screw.get("diameter", "")
                 length = screw.get("length", "")
                 
-                screw_frame = tk.Frame(self.implant_list_frame, bg="white")
+                screw_frame = tk.Frame(scrollable_frame, bg="white")
                 screw_frame.pack(fill="x", pady=1)
                 
                 tk.Label(screw_frame, text=f"{i+1}. {level} - Ø{diameter}×{length}mm", 
                        bg="white").pack(side="left")
                 
                 # Add delete button
-                tk.Button(screw_frame, text="×", command=lambda idx=i: self.delete_implant("screw", idx),
+                tk.Button(screw_frame, text="×", command=lambda idx=original_idx: self.delete_implant("screw", idx),
                         bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
         
         # Add cages to summary
         if self.cages:
-            tk.Label(self.implant_list_frame, text="Cages:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", pady=(10,0))
-            for i, cage in enumerate(self.cages):
+            tk.Label(scrollable_frame, text="Cages:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", pady=(10,0))
+            
+            # Sort cages from cranial to caudal
+            sorted_cages = sorted(enumerate(self.cages), 
+                                  key=lambda x: vertebral_level_order(x[1].get("level", "")))
+            
+            for i, (original_idx, cage) in enumerate(sorted_cages):
                 level = cage.get("level", "")
                 width = cage.get("width", "")
                 length = cage.get("length", "")
                 height = cage.get("height", "")
                 lordosis = cage.get("lordosis", "")
                 
-                cage_frame = tk.Frame(self.implant_list_frame, bg="white")
+                cage_frame = tk.Frame(scrollable_frame, bg="white")
                 cage_frame.pack(fill="x", pady=1)
                 
                 tk.Label(cage_frame, text=f"{i+1}. {level} - {width}×{length}×{height}mm {lordosis}°", 
                        bg="white").pack(side="left")
                 
                 # Add delete button
-                tk.Button(cage_frame, text="×", command=lambda idx=i: self.delete_implant("cage", idx),
+                tk.Button(cage_frame, text="×", command=lambda idx=original_idx: self.delete_implant("cage", idx),
                         bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
-    
+        
+        # Add mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
     def delete_implant(self, implant_type, index):
         """Remove an implant from the list and update display"""
         try:
@@ -1618,19 +1708,22 @@ class SpineForgePlanner:
             self.current_osteotomy = "drawing"
             self.show_status(
                 "Click to set the anterior point of the wedge, followed by the posterior points of the lower and upper resection lines.",
-                "info"
+                "info",
+                persistent=True  # Keep instruction visible until complete
             )
         elif technique == "Resect":
             self.current_osteotomy = "drawing"
             self.show_status(
                 "Click to set the four corners of the resection area: first the inferior line (2 points), then the superior line (2 points).",
-                "info"
+                "info",
+                persistent=True
             )
         elif technique == "Open":
             self.current_osteotomy = "drawing"
             self.show_status(
                 "Click to set the two points of the opening line, then drag the handles to adjust the opening amount.",
-                "info"
+                "info",
+                persistent=True
             )
             
     def draw_complete_osteotomy(self):
@@ -1664,6 +1757,8 @@ class SpineForgePlanner:
         self.osteotomy_lines.append(new_osteotomy)
         self.osteotomy_points = []
         self.current_osteotomy = None
+        
+        self.end_persistent_instruction()
         
         self.show_status(
             f"{osteotomy_type} ({technique}) created at level {level} with expected correction of {new_osteotomy['expected_correction']:.1f}°",
@@ -1945,7 +2040,8 @@ class SpineForgePlanner:
         level = self.level_var.get()
         self.show_status(
             f"Click to set the screw head/entry point at {level}, then click to set the trajectory/tip.",
-            "info"
+            "info",
+            persistent=True  # Keep instruction visible throughout the process
         )
         
     def generate_rod_model(self):
