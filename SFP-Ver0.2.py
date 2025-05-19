@@ -177,7 +177,8 @@ class SpineForgePlanner:
             ("L1 Ant", "L1_ant"), ("L1 Post", "L1_post"),
             ("L5 Ant", "L5_ant"), ("L5 Post", "L5_post"),
             ("S1 Ant", "S1_ant"), ("S1 Post", "S1_post"),
-            ("Femoral Head", "hip")
+            ("Left Femoral Head Edge 1", "LFH_edge1"), ("Left Femoral Head Edge 2", "LFH_edge2"),
+            ("Right Femoral Head Edge 1", "RFH_edge1"), ("Right Femoral Head Edge 2", "RFH_edge2")
         ]
         for i in range(0, len(self.point_buttons), 2):
             row = tk.Frame(button_frame, bg="lightgray")
@@ -740,10 +741,24 @@ class SpineForgePlanner:
             # Check if coordinates are within image boundaries
             if self.image and 0 <= x < self.image.width and 0 <= y < self.image.height:
                 self.landmarks[self.current_landmark_name] = (x, y)
+                
+                # Special handling for femoral head landmarks
+                if self.current_landmark_name in ["LFH_edge1", "LFH_edge2", "RFH_edge1", "RFH_edge2"]:
+                    # If this is the second point of a femoral head, draw a preview circle
+                    if (self.current_landmark_name == "LFH_edge2" and "LFH_edge1" in self.landmarks):
+                        p1 = self.landmarks["LFH_edge1"]
+                        p2 = (x, y)
+                        self.show_status(f"Left femoral head circle defined!", "success")
+                    elif (self.current_landmark_name == "RFH_edge2" and "RFH_edge1" in self.landmarks):
+                        p1 = self.landmarks["RFH_edge1"]
+                        p2 = (x, y)
+                        self.show_status(f"Right femoral head circle defined!", "success")
+                
                 self.current_landmark_name = None
                 self.info_label.config(text="Landmark placed. Select next landmark.")
                 self.display_image()
                 self.update_measurements()
+                
         elif self.current_osteotomy == "drawing":
             x = int((event.x - self.offset[0]) / self.zoom)
             y = int((event.y - self.offset[1]) / self.zoom)
@@ -1068,6 +1083,12 @@ class SpineForgePlanner:
         except Exception as e:
             self.show_status(f"Failed to delete implant: {str(e)}", "error")
 
+    def calculate_circle(self, p1, p2):
+        center_x = (p1[0] + p2[0]) / 2
+        center_y = (p1[1] + p2[1]) / 2
+        radius = math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2) / 2
+        return (center_x, center_y), radius
+
     def draw_landmarks(self):
         # Helper function to convert image coordinates to canvas coordinates
         def scaled(pt):
@@ -1302,36 +1323,86 @@ class SpineForgePlanner:
             )
         
         # Draw Pelvic Tilt and Pelvic Incidence
-        if all(k in lm for k in ["S1_ant", "S1_post", "hip"]):
+        if all(k in lm for k in ["S1_ant", "S1_post"]) and all(k in lm for k in ["LFH_edge1", "LFH_edge2", "RFH_edge1", "RFH_edge2"]):
             s1a_x, s1a_y = scaled(lm["S1_ant"])
             s1p_x, s1p_y = scaled(lm["S1_post"])
-            hip_x, hip_y = scaled(lm["hip"])
+            
+            # Calculate and draw left femoral head circle
+            (lfh_center_img, lfh_radius_img) = self.calculate_circle(lm["LFH_edge1"], lm["LFH_edge2"])
+            lfh_center_x, lfh_center_y = scaled(lfh_center_img)
+            lfh_radius_scaled = lfh_radius_img * self.zoom
+            self.canvas.create_oval(
+                lfh_center_x - lfh_radius_scaled, lfh_center_y - lfh_radius_scaled,
+                lfh_center_x + lfh_radius_scaled, lfh_center_y + lfh_radius_scaled,
+                outline=self.colors["femoral"], width=2
+            )
+            
+            # Calculate and draw right femoral head circle
+            (rfh_center_img, rfh_radius_img) = self.calculate_circle(lm["RFH_edge1"], lm["RFH_edge2"])
+            rfh_center_x, rfh_center_y = scaled(rfh_center_img)
+            rfh_radius_scaled = rfh_radius_img * self.zoom
+            self.canvas.create_oval(
+                rfh_center_x - rfh_radius_scaled, rfh_center_y - rfh_radius_scaled,
+                rfh_center_x + rfh_radius_scaled, rfh_center_y + rfh_radius_scaled,
+                outline=self.colors["femoral"], width=2
+            )
+            
+            # Calculate midpoint between femoral head centers
+            bicoxo_x = (lfh_center_x + rfh_center_x) / 2
+            bicoxo_y = (lfh_center_y + rfh_center_y) / 2
             
             # Calculate midpoint of sacral endplate
             s1_mid_x = (s1a_x + s1p_x) / 2
             s1_mid_y = (s1a_y + s1p_y) / 2
             
-            # Draw line from hip to sacral midpoint
-            self.canvas.create_line(hip_x, hip_y, s1_mid_x, s1_mid_y, fill=self.colors["Pelvic"], width=2)
+            # Draw line from bicoxofemoral axis to sacral midpoint
+            self.canvas.create_line(bicoxo_x, bicoxo_y, s1_mid_x, s1_mid_y, fill=self.colors["Pelvic"], width=2)
             
             # Draw vertical reference line for pelvic tilt
-            self.canvas.create_line(hip_x, hip_y, hip_x, s1_mid_y, fill=self.colors["Pelvic"], width=1, dash=(4, 2))
+            self.canvas.create_line(bicoxo_x, bicoxo_y, bicoxo_x, s1_mid_y, fill=self.colors["Pelvic"], width=1, dash=(4, 2))
             
-            # Calculate pelvic parameters for display
-            sa, sp, hip = lm['S1_ant'], lm['S1_post'], lm['hip']
-            mid = ((sa[0] + sp[0]) / 2, (sa[1] + sp[1]) / 2)
-            dx, dy = (mid[0] - hip[0]) * px, (mid[1] - hip[1]) * py
-            pt = abs(math.degrees(math.atan2(dx, -dy)))
+            # Calculate perpendicular vector to sacral endplate
+            dx_s1 = s1p_x - s1a_x
+            dy_s1 = s1p_y - s1a_y
+            length = 50  # Length of the perpendicular line to display
             
-            vec1 = np.array([dx, dy])
-            vec_s1 = np.array([(sp[0] - sa[0]) * px, (sp[1] - sa[1]) * py])
-            vec2 = np.array([-vec_s1[1], vec_s1[0]])
-            cos_a = np.clip(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)), -1.0, 1.0)
-            pi_v = math.degrees(math.acos(cos_a))
-            pi_v = min(pi_v, 180 - pi_v)
+            # Calculate perpendicular vector (-dy, dx) and normalize
+            magnitude = math.sqrt(dx_s1**2 + dy_s1**2)
+            if magnitude > 0:
+                perp_x = -dy_s1 / magnitude * length
+                perp_y = dx_s1 / magnitude * length
+                
+                # Draw perpendicular line from sacral midpoint
+                self.canvas.create_line(s1_mid_x, s1_mid_y, s1_mid_x + perp_x, s1_mid_y + perp_y, 
+                                       fill=self.colors["Pelvic"], width=1, dash=(4, 2))
             
-            # Calculate midpoint for PT label
-            pt_x, pt_y = (hip_x + s1_mid_x) / 2, (hip_y + s1_mid_y) / 2
+            # Calculate pelvic parameters in image coordinates
+            lfh_center = lfh_center_img
+            rfh_center = rfh_center_img
+            bicoxo = ((lfh_center[0] + rfh_center[0]) / 2, (lfh_center[1] + rfh_center[1]) / 2)
+            sacral_mid = ((lm["S1_ant"][0] + lm["S1_post"][0]) / 2, (lm["S1_ant"][1] + lm["S1_post"][1]) / 2)
+            
+            # Calculate pelvic tilt
+            dx_pt = (sacral_mid[0] - bicoxo[0]) * px
+            dy_pt = (sacral_mid[1] - bicoxo[1]) * py
+            pt = abs(math.degrees(math.atan2(dx_pt, -dy_pt)))
+            
+            # Calculate pelvic incidence using the perpendicular
+            # Sacral vector and its perpendicular
+            sacral_vec = np.array([(lm["S1_post"][0] - lm["S1_ant"][0]) * px, (lm["S1_post"][1] - lm["S1_ant"][1]) * py])
+            sacral_perp = np.array([-sacral_vec[1], sacral_vec[0]])
+            sacral_perp = sacral_perp / np.linalg.norm(sacral_perp)
+            
+            # Vector from midpoint to bicoxofemoral axis
+            hip_vec = np.array([(bicoxo[0] - sacral_mid[0]) * px, (bicoxo[1] - sacral_mid[1]) * py])
+            hip_vec = hip_vec / np.linalg.norm(hip_vec)
+            
+            # Calculate PI as angle between these vectors
+            cos_pi = np.clip(np.dot(sacral_perp, hip_vec), -1.0, 1.0)
+            pi_angle = math.degrees(math.acos(cos_pi))
+            
+            # Store midpoint for PT label
+            pt_x, pt_y = (bicoxo_x + s1_mid_x) / 2, (bicoxo_y + s1_mid_y) / 2
             
             # Store PT anchor point
             store_anchor_point("PelvicTilt", (pt_x, pt_y))
@@ -1371,12 +1442,12 @@ class SpineForgePlanner:
             # Create outlined text
             self.create_outlined_text(
                 label_x, label_y, 
-                text=f"Pelvic Incidence: {pi_v:.1f}°",
+                text=f"Pelvic Incidence: {pi_angle:.1f}°",
                 fill_color=self.colors["Pelvic"],
                 font_size=self.text_size,
                 tags=("label:PelvicIncidence",)
             )
-        
+                
         # Draw SVA (Sagittal Vertical Axis)
         if all(k in lm for k in ["C7_post", "S1_post"]):
             c7p_x, c7p_y = scaled(lm["C7_post"])
@@ -1600,20 +1671,35 @@ class SpineForgePlanner:
             
         update("Sacral Slope", f"{self.calculate_angle(lm['S1_ant'], lm['S1_post']):.2f}°") if all(k in lm for k in ["S1_ant", "S1_post"]) else update("Sacral Slope", "--")
         
-        if all(k in lm for k in ["S1_ant", "S1_post", "hip"]):
-            sa, sp, hip = lm['S1_ant'], lm['S1_post'], lm['hip']
-            mid = ((sa[0] + sp[0]) / 2, (sa[1] + sp[1]) / 2)
-            dx, dy = (mid[0] - hip[0]) * px, (mid[1] - hip[1]) * py
-            pt = abs(math.degrees(math.atan2(dx, -dy)))
+        if all(k in lm for k in ["S1_ant", "S1_post"]) and all(k in lm for k in ["LFH_edge1", "LFH_edge2", "RFH_edge1", "RFH_edge2"]):
+            # Calculate femoral head centers
+            lfh_center, _ = self.calculate_circle(lm["LFH_edge1"], lm["LFH_edge2"])
+            rfh_center, _ = self.calculate_circle(lm["RFH_edge1"], lm["RFH_edge2"])
+            
+            # Calculate bicoxofemoral axis (midpoint between femoral heads)
+            bicoxo = ((lfh_center[0] + rfh_center[0]) / 2, (lfh_center[1] + rfh_center[1]) / 2)
+            
+            # Calculate sacral midpoint
+            sacral_mid = ((lm["S1_ant"][0] + lm["S1_post"][0]) / 2, (lm["S1_ant"][1] + lm["S1_post"][1]) / 2)
+            
+            # Calculate PT
+            dx_pt = (sacral_mid[0] - bicoxo[0]) * px
+            dy_pt = (sacral_mid[1] - bicoxo[1]) * py
+            pt = abs(math.degrees(math.atan2(dx_pt, -dy_pt)))
             update("Pelvic Tilt", f"{pt:.2f}°")
             
-            vec1 = np.array([dx, dy])
-            vec_s1 = np.array([(sp[0] - sa[0]) * px, (sp[1] - sa[1]) * py])
-            vec2 = np.array([-vec_s1[1], vec_s1[0]])
-            cos_a = np.clip(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)), -1.0, 1.0)
-            pi_v = math.degrees(math.acos(cos_a))
-            pi_v = min(pi_v, 180 - pi_v)
-            update("PI (vector)", f"{pi_v:.2f}°")
+            # Calculate PI using the perpendicular to sacral endplate
+            sacral_vec = np.array([(lm["S1_post"][0] - lm["S1_ant"][0]) * px, (lm["S1_post"][1] - lm["S1_ant"][1]) * py])
+            sacral_perp = np.array([-sacral_vec[1], sacral_vec[0]])
+            sacral_perp = sacral_perp / np.linalg.norm(sacral_perp)
+            
+            hip_vec = np.array([(bicoxo[0] - sacral_mid[0]) * px, (bicoxo[1] - sacral_mid[1]) * py])
+            hip_vec = hip_vec / np.linalg.norm(hip_vec)
+            
+            cos_pi = np.clip(np.dot(sacral_perp, hip_vec), -1.0, 1.0)
+            pi_angle = math.degrees(math.acos(cos_pi))
+            
+            update("PI (vector)", f"{pi_angle:.2f}°")
         else:
             update("Pelvic Tilt", "--")
             update("PI (vector)", "--")
