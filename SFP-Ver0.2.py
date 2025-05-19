@@ -15,7 +15,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import pydicom
 import numpy as np
-from PIL import Image, ImageTk, ImageEnhance
+from PIL import Image, ImageTk, ImageEnhance, ImageDraw
 import math
 import pyperclip
 import ctypes
@@ -25,6 +25,7 @@ from stl import mesh
 from scipy.interpolate import splprep, splev
 import sys
 import time
+import cv2
 
 # Platform-specific imports for screenshot functionality
 if sys.platform == "darwin":  # macOS
@@ -78,6 +79,7 @@ class SpineForgePlanner:
         self.current_osteotomy = None
         self.osteotomy_lines = []
         self.is_simulated = False
+        self.implement_wedge_osteotomy()
         
         # Implant state
         self.screws = []
@@ -434,6 +436,48 @@ class SpineForgePlanner:
             self.screw_params_frame.pack_forget()
             self.cage_params_frame.pack(fill="x", padx=5, pady=5)
 
+    def implement_wedge_osteotomy(self):
+        # First, let's add a wedge tool to your button_frame
+       osteotomy_frame = tk.Frame(self.sidebar, bg="lightgray")
+       osteotomy_frame.pack(pady=5)
+       tk.Label(osteotomy_frame, text="Osteotomy Tools:", bg="lightgray", font=("Arial", 10, "bold")).pack(anchor="w")
+       
+       wedge_button = tk.Button(osteotomy_frame, text="Wedge Osteotomy", width=18, 
+                                command=lambda: self.start_wedge_osteotomy())
+       wedge_button.pack(pady=2)
+       
+       # Also add a clear button
+       clear_button = tk.Button(osteotomy_frame, text="Clear Osteotomies", width=18, 
+                                command=lambda: self.clear_osteotomies())
+       clear_button.pack(pady=2)
+       
+       # Initialize osteotomy variables
+       self.osteotomy_mode = False
+       self.osteotomy_points = []
+       self.osteotomies = []  # To store multiple osteotomies
+       self.active_osteotomy = None
+       self.modified_image = None
+       self.osteotomy_applied = False
+       
+    def start_wedge_osteotomy(self):
+        # Set the mode to osteotomy
+        self.osteotomy_mode = True
+        self.osteotomy_points = []
+        self.info_label.config(text="Click to place wedge osteotomy points (3 points needed)")
+        # Change cursor to indicate osteotomy mode
+        self.canvas.config(cursor="crosshair")
+        
+    def clear_osteotomies(self):
+        self.osteotomies = []
+        self.osteotomy_points = []
+        self.osteotomy_mode = False
+        self.osteotomy_applied = False
+        self.modified_image = None
+        self.active_osteotomy = None
+        self.display_image()
+        self.info_label.config(text="Osteotomies cleared")
+       
+       
     # Replace the current osteotomy tab setup with this simplified version
     def setup_osteotomy_tab(self):
         """Setup the osteotomy tab with the three techniques"""
@@ -727,13 +771,34 @@ class SpineForgePlanner:
             messagebox.showerror("Error", f"Display error: {str(e)}")
 
     def on_click(self, event):
-        if self.current_landmark_name:
-            # Convert from canvas coordinates to image coordinates
-            x = int((event.x - self.offset[0]) / self.zoom)
-            y = int((event.y - self.offset[1]) / self.zoom)
-            
-            # Check if coordinates are within image boundaries
-            if self.image and 0 <= x < self.image.width and 0 <= y < self.image.height:
+        if self.image is None:
+            return
+                
+        # Convert from canvas coordinates to image coordinates
+        x = int((event.x - self.offset[0]) / self.zoom)
+        y = int((event.y - self.offset[1]) / self.zoom)
+        
+        # Check if coordinates are within image boundaries
+        if 0 <= x < self.image.width and 0 <= y < self.image.height:
+            if self.osteotomy_mode:
+                self.osteotomy_points.append((x, y))
+                
+                if len(self.osteotomy_points) == 3:
+                    # We have all 3 points for a wedge osteotomy
+                    self.osteotomies.append({
+                        'type': 'wedge',
+                        'points': self.osteotomy_points.copy(),
+                        'applied': False,
+                        'handle_ids': []
+                    })
+                    self.active_osteotomy = len(self.osteotomies) - 1
+                    self.osteotomy_points = []
+                    self.osteotomy_mode = False
+                    self.canvas.config(cursor="cross")
+                    self.info_label.config(text="Right-click on the wedge to apply/unapply")
+                
+                self.display_image()
+            elif self.current_landmark_name:
                 self.landmarks[self.current_landmark_name] = (x, y)
                 
                 # Special handling for femoral head landmarks
@@ -752,95 +817,86 @@ class SpineForgePlanner:
                 self.info_label.config(text="Landmark placed. Select next landmark.")
                 self.display_image()
                 self.update_measurements()
+                    
+            elif self.current_osteotomy == "drawing":
+                self.osteotomy_points.append((x, y))
                 
-        elif self.current_osteotomy == "drawing":
-            x = int((event.x - self.offset[0]) / self.zoom)
-            y = int((event.y - self.offset[1]) / self.zoom)
-            self.osteotomy_points.append((x, y))
-            
-            technique = self.osteotomy_technique.get()
-            
-            # Different number of points for different techniques
-            max_points = 4
-            if technique == "Open":
-                max_points = 2
+                technique = self.osteotomy_technique.get()
                 
-            if len(self.osteotomy_points) == max_points:
-                self.draw_complete_osteotomy()
-                
-            self.display_image()
-            
-        elif self.current_screw == "placing_cage":
-            x = int((event.x - self.offset[0]) / self.zoom)
-            y = int((event.y - self.offset[1]) / self.zoom)
-            
-            self.osteotomy_points.append((x, y))
-            self.display_image()
-            
-            # Once we have 4 points for the cage
-            if len(self.osteotomy_points) == 4:
-                width = float(self.cage_width.get())
-                length = float(self.cage_length.get())
-                height = float(self.cage_height.get())
-                lordosis = float(self.cage_lordosis.get())
-                level = self.level_var.get()
-                
-                self.cages.append({
-                    "corners": self.osteotomy_points.copy(),
-                    "width": width,
-                    "length": length,
-                    "height": height,
-                    "lordosis": lordosis,
-                    "level": level
-                })
-                
-                self.osteotomy_points = []
-                self.current_screw = None
-                self.show_status(
-                    f"Cage placed at {level} - {width}×{length}×{height}mm with {lordosis}° lordosis", "success")
-
+                # Different number of points for different techniques
+                max_points = 4
+                if technique == "Open":
+                    max_points = 2
+                    
+                if len(self.osteotomy_points) == max_points:
+                    self.draw_complete_osteotomy()
+                    
                 self.display_image()
                 
-                # Update implant summary
-                self.update_implant_summary()
-                
-        elif self.current_screw == "placing":
-            x = int((event.x - self.offset[0]) / self.zoom)
-            y = int((event.y - self.offset[1]) / self.zoom)
-            
-            # First click for screw head
-            if len(self.osteotomy_points) == 0:
+            elif self.current_screw == "placing_cage":
                 self.osteotomy_points.append((x, y))
                 self.display_image()
-            else:
-                # Second click for screw tip
-                head_x, head_y = self.osteotomy_points[0]
-                tip_x, tip_y = x, y
                 
-                # Calculate screw length in mm
-                length = math.sqrt((tip_x - head_x)**2 + (tip_y - head_y)**2) * self.pixel_spacing[0]
-                length = round(length)  # Round to nearest mm
-                diameter = float(self.screw_diameter.get())
-                
-                self.screws.append({
-                    "head": (head_x, head_y),
-                    "tip": (tip_x, tip_y),
-                    "diameter": diameter,
-                    "length": length,
-                    "level": self.level_var.get()
-                })
-                
-                self.osteotomy_points = []
-                self.current_screw = None
-                
-                self.end_persistent_instruction()
-                
-                self.show_status(
-                    f"Screw placed at {self.level_var.get()} - Ø{diameter}mm x {length}mm", "success")
-
+                # Once we have 4 points for the cage
+                if len(self.osteotomy_points) == 4:
+                    width = float(self.cage_width.get())
+                    length = float(self.cage_length.get())
+                    height = float(self.cage_height.get())
+                    lordosis = float(self.cage_lordosis.get())
+                    level = self.level_var.get()
+                    
+                    self.cages.append({
+                        "corners": self.osteotomy_points.copy(),
+                        "width": width,
+                        "length": length,
+                        "height": height,
+                        "lordosis": lordosis,
+                        "level": level
+                    })
+                    
+                    self.osteotomy_points = []
+                    self.current_screw = None
+                    self.show_status(
+                        f"Cage placed at {level} - {width}×{length}×{height}mm with {lordosis}° lordosis", "success")
+    
+                    self.display_image()
+                    
+                    # Update implant summary
+                    self.update_implant_summary()
+                    
+            elif self.current_screw == "placing":
+                self.osteotomy_points.append((x, y))
                 self.display_image()
                 
-                self.update_implant_summary()
+                # Second click for screw tip
+                if len(self.osteotomy_points) == 2:
+                    head_x, head_y = self.osteotomy_points[0]
+                    tip_x, tip_y = self.osteotomy_points[1]
+                    
+                    # Calculate screw length in mm
+                    length = math.sqrt((tip_x - head_x)**2 + (tip_y - head_y)**2) * self.pixel_spacing[0]
+                    length = round(length)  # Round to nearest mm
+                    diameter = float(self.screw_diameter.get())
+                    
+                    self.screws.append({
+                        "head": (head_x, head_y),
+                        "tip": (tip_x, tip_y),
+                        "diameter": diameter,
+                        "length": length,
+                        "level": self.level_var.get()
+                    })
+                    
+                    self.osteotomy_points = []
+                    self.current_screw = None
+                    
+                    self.end_persistent_instruction()
+                    
+                    self.show_status(
+                        f"Screw placed at {self.level_var.get()} - Ø{diameter}mm x {length}mm", "success")
+    
+                    self.display_image()
+                    
+                    self.update_implant_summary()
                 
     def setup_status_area(self):
         """Set up the status notification area in the UI"""
@@ -1478,7 +1534,46 @@ class SpineForgePlanner:
                 font_size=self.text_size,
                 tags=("label:SVA",)
             )
-
+            
+    def calculate_wedge_angle(self, p1, p2, p3):
+        """Calculate angle between two lines (p1-p2 and p1-p3)"""
+        # Vector from p1 to p2
+        v1 = np.array([p2[0] - p1[0], p2[1] - p1[1]])
+        
+        # Vector from p1 to p3
+        v2 = np.array([p3[0] - p1[0], p3[1] - p1[1]])
+        
+        # Calculate dot product
+        dot = np.dot(v1, v2)
+        
+        # Calculate magnitudes
+        mag1 = np.linalg.norm(v1)
+        mag2 = np.linalg.norm(v2)
+        
+        # Avoid division by zero
+        if mag1 * mag2 == 0:
+            return 0
+            
+        # Calculate cosine of angle
+        cos_angle = dot / (mag1 * mag2)
+        
+        # Ensure value is in valid range
+        cos_angle = np.clip(cos_angle, -1.0, 1.0)
+        
+        # Convert to degrees
+        angle = np.degrees(np.arccos(cos_angle))
+        
+        return angle
+    
+    def calculate_bisector(self, p1, p2, p3):
+        """Calculate the bisector angle between two lines (p1-p2 and p1-p3)"""
+        # Calculate angles from horizontal axis
+        angle1 = np.degrees(np.arctan2(p2[1] - p1[1], p2[0] - p1[0]))
+        angle2 = np.degrees(np.arctan2(p3[1] - p1[1], p3[0] - p1[0]))
+        
+        # Bisector is the average of the two angles
+        return (angle1 + angle2) / 2
+    
     def draw_osteotomy_lines(self):
         """Draw osteotomy lines on the canvas"""
         # Helper function to convert image coordinates to canvas coordinates
@@ -1517,38 +1612,64 @@ class SpineForgePlanner:
             if technique == "Wedge" and len(line["points"]) >= 3:
                 # Draw wedge shape - anterior point and two posterior points
                 points = line["points"]
-                for i in range(len(points)):
-                    pt1 = scaled(points[i])
-                    pt2 = scaled(points[(i+1) % len(points)])
-                    self.canvas.create_line(pt1[0], pt1[1], pt2[0], pt2[1], fill=color, width=2)
-                    
-                    # Draw bisecting line (as in your example image)
-                    if i == 0 and not line["applied"]:
-                        # Bisecting line from anterior point to middle of posterior line
-                        mid_x = (points[1][0] + points[2][0]) / 2
-                        mid_y = (points[1][1] + points[2][1]) / 2
-                        mid_pt = scaled((mid_x, mid_y))
-                        self.canvas.create_line(pt1[0], pt1[1], mid_pt[0], mid_pt[1], 
-                                               fill=color, width=1, dash=(4, 2))
-            
+                
+                # Scale points to canvas coordinates
+                canvas_points = [scaled(p) for p in points]
+                p1, p2, p3 = canvas_points
+                
+                # Draw the wedge lines
+                line1 = self.canvas.create_line(p1[0], p1[1], p2[0], p2[1], 
+                                              fill=color, width=2,
+                                              tags=(f"osteotomy_{i}", "wedge"))
+                line2 = self.canvas.create_line(p1[0], p1[1], p3[0], p3[1], 
+                                              fill=color, width=2,
+                                              tags=(f"osteotomy_{i}", "wedge"))
+                
+                # Draw bisecting line (as in your example image)
+                if not line["applied"]:
+                    # Bisecting line from anterior point to middle of posterior line
+                    mid_x = (p2[0] + p3[0]) / 2
+                    mid_y = (p2[1] + p3[1]) / 2
+                    bisector = self.canvas.create_line(p1[0], p1[1], mid_x, mid_y, 
+                                                   fill=color, width=1, dash=(4, 2),
+                                                   tags=(f"osteotomy_{i}", "wedge"))
+                
+                # Add angle display
+                wedge_angle = self.calculate_wedge_angle(points[0], points[1], points[2])
+                mid_x = (p1[0] + p2[0] + p3[0]) / 3
+                mid_y = (p1[1] + p2[1] + p3[1]) / 3
+                angle_text = self.canvas.create_text(mid_x, mid_y, 
+                                                  text=f"{wedge_angle:.1f}°", 
+                                                  fill='white', 
+                                                  font=('Arial', 10, 'bold'),
+                                                  tags=(f"osteotomy_{i}", "wedge"))
+                
+                # Add right-click binding for apply/unapply
+                self.canvas.tag_bind(f"osteotomy_{i}", "<Button-3>", 
+                                  lambda event, idx=i: self.toggle_osteotomy(event, idx))
+                
             elif technique == "Resect" and len(line["points"]) >= 4:
                 # Draw resect shape - rectangle with two lines
                 points = line["points"]
                 # Draw inferior line
                 pt1, pt2 = scaled(points[0]), scaled(points[1])
-                self.canvas.create_line(pt1[0], pt1[1], pt2[0], pt2[1], fill=color, width=2)
+                self.canvas.create_line(pt1[0], pt1[1], pt2[0], pt2[1], fill=color, width=2, tags=(f"osteotomy_{i}", "resect"))
                 # Draw superior line
                 pt3, pt4 = scaled(points[2]), scaled(points[3])
-                self.canvas.create_line(pt3[0], pt3[1], pt4[0], pt4[1], fill=color, width=2)
+                self.canvas.create_line(pt3[0], pt3[1], pt4[0], pt4[1], fill=color, width=2, tags=(f"osteotomy_{i}", "resect"))
                 # Connect lines
                 if not line["applied"]:
-                    self.canvas.create_line(pt1[0], pt1[1], pt3[0], pt3[1], fill=color, width=1, dash=(4, 2))
-                    self.canvas.create_line(pt2[0], pt2[1], pt4[0], pt4[1], fill=color, width=1, dash=(4, 2))
-            
+                    self.canvas.create_line(pt1[0], pt1[1], pt3[0], pt3[1], fill=color, width=1, dash=(4, 2), tags=(f"osteotomy_{i}", "resect"))
+                    self.canvas.create_line(pt2[0], pt2[1], pt4[0], pt4[1], fill=color, width=1, dash=(4, 2), tags=(f"osteotomy_{i}", "resect"))
+                
+                # Add right-click binding
+                self.canvas.tag_bind(f"osteotomy_{i}", "<Button-3>", 
+                                  lambda event, idx=i: self.toggle_osteotomy(event, idx))
+                
             elif technique == "Open" and len(line["points"]) >= 2:
                 # Draw open line
                 pt1, pt2 = scaled(line["points"][0]), scaled(line["points"][1])
-                self.canvas.create_line(pt1[0], pt1[1], pt2[0], pt2[1], fill=color, width=2)
+                self.canvas.create_line(pt1[0], pt1[1], pt2[0], pt2[1], fill=color, width=2, tags=(f"osteotomy_{i}", "open"))
                 
                 # If not applied, add visual indicators for the opening
                 if not line["applied"]:
@@ -1565,9 +1686,15 @@ class SpineForgePlanner:
                         
                         # Draw arrows indicating opening direction
                         self.canvas.create_line(pt1[0], pt1[1], pt1[0]+nx, pt1[1]+ny, 
-                                               fill=color, width=1, arrow=tk.LAST)
+                                             fill=color, width=1, arrow=tk.LAST,
+                                             tags=(f"osteotomy_{i}", "open"))
                         self.canvas.create_line(pt2[0], pt2[1], pt2[0]+nx, pt2[1]+ny, 
-                                               fill=color, width=1, arrow=tk.LAST)
+                                             fill=color, width=1, arrow=tk.LAST,
+                                             tags=(f"osteotomy_{i}", "open"))
+                
+                # Add right-click binding
+                self.canvas.tag_bind(f"osteotomy_{i}", "<Button-3>", 
+                                  lambda event, idx=i: self.toggle_osteotomy(event, idx))
             
             # Add text showing the osteotomy type and level
             if len(line["points"]) > 0:
@@ -1575,7 +1702,8 @@ class SpineForgePlanner:
                 sx, sy = scaled((x, y))
                 status = "Applied" if line["applied"] else "Unapplied"
                 self.canvas.create_text(sx, sy-15, text=f"{technique} at {line['level']} - {status}", 
-                                       fill=color, anchor="sw")
+                                      fill=color, anchor="sw",
+                                      tags=(f"osteotomy_{i}",))
 
 
     def draw_implants(self):
@@ -1767,6 +1895,9 @@ class SpineForgePlanner:
         if simulated and self.is_simulated:
             self.apply_osteotomy_corrections(target_dict)
             
+            
+    
+            
     def apply_osteotomy_corrections(self, target_dict):
         """Apply estimated corrections to measurements based on applied osteotomies"""
         applied_osteotomies = [o for o in self.osteotomy_lines if o.get("applied", False)]
@@ -1907,6 +2038,137 @@ class SpineForgePlanner:
             f"{osteotomy_type} ({technique}) created at level {level} with expected correction of {new_osteotomy['expected_correction']:.1f}°",
             "success"
         )
+        
+    def toggle_osteotomy(self, event, osteotomy_index):
+        """Toggle apply/unapply osteotomy via right-click menu"""
+        # Get the osteotomy
+        osteotomy = self.osteotomy_lines[osteotomy_index]
+        applied = osteotomy["applied"]
+        
+        # Create a popup menu
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Apply" if not applied else "Unapply", 
+                       command=lambda: self.apply_wedge_osteotomy(osteotomy_index, not applied))
+        menu.post(event.x_root, event.y_root)
+      
+    def apply_wedge_osteotomy(self, osteotomy_index, apply=True):
+        """Apply or unapply the wedge osteotomy to create a simulated image"""
+        if apply:
+            # Create a copy of the original image if no modified image exists
+            if not hasattr(self, 'modified_image') or self.modified_image is None:
+                self.modified_image = self.original_image.copy()
+            
+            # Get the osteotomy points
+            osteotomy = self.osteotomy_lines[osteotomy_index]
+            points = osteotomy["points"]
+            
+            # Make sure we have enough points for the osteotomy
+            if len(points) < 3:
+                messagebox.showerror("Error", "Incomplete osteotomy definition. Need at least 3 points.")
+                return
+            
+            # Convert image to numpy array for manipulation
+            img_array = np.array(self.modified_image)
+            
+            # Get the three points defining the wedge
+            p1 = points[0]  # Anterior point
+            p2 = points[1]  # Lower posterior point
+            p3 = points[2]  # Upper posterior point
+            
+            # Calculate angle of wedge for rotation
+            angle = self.calculate_wedge_angle(p1, p2, p3) / 2  # Half angle for each segment
+            
+            # Get image dimensions
+            height, width = img_array.shape[:2]
+            
+            # Create separate masks for upper and lower portions
+            upper_mask = np.zeros((height, width), dtype=np.uint8)
+            lower_mask = np.zeros((height, width), dtype=np.uint8)
+            
+            # Define polygon for upper portion (above wedge)
+            upper_polygon = np.array([
+                p1,
+                p3,
+                [width-1, 0],
+                [0, 0]
+            ], dtype=np.int32)
+            
+            # Define polygon for lower portion (below wedge)
+            lower_polygon = np.array([
+                p1,
+                p2,
+                [width-1, height-1],
+                [0, height-1]
+            ], dtype=np.int32)
+            
+            # Fill polygons in masks
+            cv2.fillPoly(upper_mask, [upper_polygon], 255)
+            cv2.fillPoly(lower_mask, [lower_polygon], 255)
+            
+            # Create rotation matrices
+            M_upper = cv2.getRotationMatrix2D((p1[0], p1[1]), angle, 1)
+            M_lower = cv2.getRotationMatrix2D((p1[0], p1[1]), -angle, 1)
+            
+            # Create separate arrays for upper and lower portions
+            if len(img_array.shape) == 3:  # Color image
+                upper_part = np.zeros_like(img_array)
+                lower_part = np.zeros_like(img_array)
+                
+                for c in range(img_array.shape[2]):
+                    # Extract channel
+                    channel = img_array[:,:,c]
+                    
+                    # Apply masks
+                    upper_part[:,:,c] = np.where(upper_mask == 255, channel, 0)
+                    lower_part[:,:,c] = np.where(lower_mask == 255, channel, 0)
+                    
+                    # Rotate portions
+                    upper_part[:,:,c] = cv2.warpAffine(upper_part[:,:,c], M_upper, (width, height))
+                    lower_part[:,:,c] = cv2.warpAffine(lower_part[:,:,c], M_lower, (width, height))
+                
+                # Combine rotated portions
+                result = np.zeros_like(img_array)
+                for c in range(img_array.shape[2]):
+                    # Use logical OR to combine channels (max of each channel)
+                    result[:,:,c] = np.maximum(upper_part[:,:,c], lower_part[:,:,c])
+            else:
+                # Grayscale image
+                upper_part = np.where(upper_mask == 255, img_array, 0)
+                lower_part = np.where(lower_mask == 255, img_array, 0)
+                
+                # Rotate portions
+                upper_part = cv2.warpAffine(upper_part, M_upper, (width, height))
+                lower_part = cv2.warpAffine(lower_part, M_lower, (width, height))
+                
+                # Combine rotated portions
+                result = np.maximum(upper_part, lower_part)
+            
+            # Update the image with the result
+            self.modified_image = Image.fromarray(result)
+            
+            # Mark as applied
+            self.osteotomy_lines[osteotomy_index]['applied'] = True
+            self.osteotomy_applied = True
+        else:
+            # Unapply the osteotomy
+            self.osteotomy_lines[osteotomy_index]['applied'] = False
+            
+            # Check if any osteotomies are still applied
+            any_applied = False
+            for osteotomy in self.osteotomy_lines:
+                if osteotomy['applied']:
+                    any_applied = True
+                    break
+            
+            if not any_applied:
+                # If no osteotomies are applied, revert to original
+                self.modified_image = None
+                self.osteotomy_applied = False
+        
+        # Update display and measurements
+        self.display_image()
+        self.update_measurements(simulated=True)
+        self.is_simulated = True
         
     def apply_osteotomy(self):
         """Apply the osteotomy correction to create a simulated image"""
