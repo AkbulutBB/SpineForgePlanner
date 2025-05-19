@@ -24,6 +24,7 @@ import os
 from stl import mesh
 from scipy.interpolate import splprep, splev
 import sys
+import time
 
 # Platform-specific imports for screenshot functionality
 if sys.platform == "darwin":  # macOS
@@ -378,9 +379,11 @@ class SpineForgePlanner:
         self.canvas = tk.Canvas(self.center_panel, bg="black", cursor="cross")
         self.canvas.pack(fill="both", expand=True)
         
-        # Right sidebar for measurements and results
+        # Right sidebar for measurements and results and status
         self.right_sidebar = tk.Frame(self.main_frame, width=350, bg="lightgray")
         self.right_sidebar.pack(side="right", fill="y")
+        
+        self.setup_status_area()
         
         # Add measurements header
         self.info_label = tk.Label(self.right_sidebar, text="Measurements:", bg="lightgray")
@@ -510,12 +513,14 @@ class SpineForgePlanner:
         self.current_screw = "placing_cage"
         self.osteotomy_points = []
         level = self.level_var.get()
-        messagebox.showinfo("Place Cage", 
-            f"Click 4 points to define the cage at {level} level: \n"
+        self.show_status(
+            f"Click 4 points to define the cage at {level} level:\n"
             f"1) Left corner of inferior endplate\n"
             f"2) Right corner of inferior endplate\n"
             f"3) Left corner of superior endplate\n"
-            f"4) Right corner of superior endplate")
+            f"4) Right corner of superior endplate",
+            "info"
+        )
 
     def create_outlined_text(self, x, y, text, fill_color, font_size, tags):
         """Create text with white/black outline for better visibility on any background"""
@@ -701,9 +706,9 @@ class SpineForgePlanner:
                         text += f"{name}: {label['text']}\n"
                         
             pyperclip.copy(text)
-            messagebox.showinfo("Copied", "Measurements copied to clipboard.")
+            self.show_status("Measurements copied to clipboard.", "success")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to copy to clipboard: {str(e)}")
+            self.show_status(f"Failed to copy to clipboard: {str(e)}", "error")
 
     def display_image(self):
         if self.image is None:
@@ -782,8 +787,9 @@ class SpineForgePlanner:
                 
                 self.osteotomy_points = []
                 self.current_screw = None
-                messagebox.showinfo("Cage Placed", 
-                    f"Cage placed at {level} - {width}×{length}×{height}mm with {lordosis}° lordosis")
+                self.show_status(
+                    f"Cage placed at {level} - {width}×{length}×{height}mm with {lordosis}° lordosis", "success")
+
                 self.display_image()
                 
                 # Update implant summary
@@ -817,10 +823,101 @@ class SpineForgePlanner:
                 
                 self.osteotomy_points = []
                 self.current_screw = None
-                messagebox.showinfo("Screw Placed", f"Screw placed at {self.level_var.get()} - Ø{diameter}mm x {length}mm")
+                self.show_status(
+                    f"Screw placed at {self.level_var.get()} - Ø{diameter}mm x {length}mm", "success")
+
                 self.display_image()
                 
                 self.update_implant_summary()
+                
+    def setup_status_area(self):
+        """Set up the status notification area in the UI"""
+        # Create a frame for status messages at the top of the right sidebar
+        self.status_area = tk.Frame(self.right_sidebar, bg="#333333", height=60)
+        self.status_area.pack(fill="x", side="top", padx=5, pady=5)
+        
+        # Status message label with larger font
+        self.status_message = tk.Label(self.status_area, text="", font=("Arial", 12, "bold"), 
+                                      bg="#333333", fg="#FFFFFF", wraplength=320, justify="left")
+        self.status_message.pack(fill="x", padx=10, pady=10)
+        
+        # Add a small log area that shows recent messages
+        self.log_frame = tk.Frame(self.status_area, bg="#333333")
+        self.log_frame.pack(fill="x", padx=5)
+        
+        # Create 3 labels for recent messages (we'll rotate through them)
+        self.log_labels = []
+        for i in range(3):
+            label = tk.Label(self.log_frame, text="", font=("Arial", 8), 
+                           bg="#333333", fg="#AAAAAA", anchor="w")
+            label.pack(fill="x", padx=5, pady=1)
+            self.log_labels.append(label)
+        
+        # Message queue for the log
+        self.message_queue = []
+
+    def show_status(self, message, message_type="info", duration=5000):
+        """
+        Display a status message instead of showing a messagebox
+        
+        Args:
+            message: The message to display
+            message_type: 'info', 'error', 'success'
+            duration: How long to display the message prominently (ms)
+        """
+        # Define colors for different message types
+        colors = {
+            "info": {"bg": "#2980B9", "fg": "#FFFFFF"},    # Blue
+            "error": {"bg": "#E74C3C", "fg": "#FFFFFF"},   # Red
+            "success": {"bg": "#27AE60", "fg": "#FFFFFF"}  # Green
+        }
+        
+        # Get colors for this message type
+        bg_color = colors.get(message_type, colors["info"])["bg"]
+        fg_color = colors.get(message_type, colors["info"])["fg"]
+        
+        # Update the status message
+        self.status_message.config(text=message, bg=bg_color, fg=fg_color)
+        self.status_area.config(bg=bg_color)
+        
+        # Add message to log queue
+        timestamp = time.strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {message}"
+        self.message_queue.insert(0, log_entry)
+        
+        # Keep only the 3 most recent messages
+        self.message_queue = self.message_queue[:3]
+        
+        # Update log labels
+        for i, label in enumerate(self.log_labels):
+            if i < len(self.message_queue):
+                label.config(text=self.message_queue[i])
+            else:
+                label.config(text="")
+        
+        # Flash the status area to draw attention
+        def flash_status(count=2, interval=600):
+            if count > 0:
+                current_bg = self.status_area.cget("bg")
+                new_bg = "#FFFFFF" if current_bg != "#FFFFFF" else bg_color
+                self.status_area.config(bg=new_bg)
+                self.status_message.config(bg=new_bg)
+                self.root.after(interval, lambda: flash_status(count-1, interval))
+            else:
+                # Reset to normal after flashing
+                self.status_area.config(bg=bg_color)
+                self.status_message.config(bg=bg_color)
+                
+                # Schedule clearing the prominent message after duration
+                self.root.after(duration, self.clear_status)
+        
+        # Start flashing
+        flash_status()
+
+    def clear_status(self):
+        """Clear the prominent status message but keep the log"""
+        self.status_message.config(text="", bg="#333333")
+        self.status_area.config(bg="#333333")
 
     def update_implant_summary(self):
         """Update the implant summary list in the right sidebar"""
@@ -871,13 +968,15 @@ class SpineForgePlanner:
         try:
             if implant_type == "screw" and 0 <= index < len(self.screws):
                 del self.screws[index]
+                self.show_status(f"Screw {index+1} deleted.", "info")
             elif implant_type == "cage" and 0 <= index < len(self.cages):
                 del self.cages[index]
+                self.show_status(f"Cage {index+1} deleted.", "info")
                 
             self.update_implant_summary()
             self.display_image()
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to delete implant: {str(e)}")
+            self.show_status(f"Failed to delete implant: {str(e)}", "error")
 
     def draw_landmarks(self):
         # Helper function to convert image coordinates to canvas coordinates
@@ -1517,17 +1616,23 @@ class SpineForgePlanner:
         
         if technique == "Wedge":
             self.current_osteotomy = "drawing"
-            messagebox.showinfo("Draw Wedge Osteotomy", 
-                "Click to set the anterior point of the wedge, followed by the posterior points of the lower and upper resection lines.")
+            self.show_status(
+                "Click to set the anterior point of the wedge, followed by the posterior points of the lower and upper resection lines.",
+                "info"
+            )
         elif technique == "Resect":
             self.current_osteotomy = "drawing"
-            messagebox.showinfo("Draw Resect Osteotomy", 
-                "Click to set the four corners of the resection area: first the inferior line (2 points), then the superior line (2 points).")
+            self.show_status(
+                "Click to set the four corners of the resection area: first the inferior line (2 points), then the superior line (2 points).",
+                "info"
+            )
         elif technique == "Open":
             self.current_osteotomy = "drawing"
-            messagebox.showinfo("Draw Opening Osteotomy", 
-                "Click to set the two points of the opening line, then drag the handles to adjust the opening amount.")
-    
+            self.show_status(
+                "Click to set the two points of the opening line, then drag the handles to adjust the opening amount.",
+                "info"
+            )
+            
     def draw_complete_osteotomy(self):
         """Save the drawn osteotomy"""
         osteotomy_type = self.osteotomy_type.get()
@@ -1560,13 +1665,15 @@ class SpineForgePlanner:
         self.osteotomy_points = []
         self.current_osteotomy = None
         
-        messagebox.showinfo("Osteotomy Created", 
-            f"{osteotomy_type} ({technique}) created at level {level} with expected correction of {new_osteotomy['expected_correction']:.1f}°")
-    
+        self.show_status(
+            f"{osteotomy_type} ({technique}) created at level {level} with expected correction of {new_osteotomy['expected_correction']:.1f}°",
+            "success"
+        )
+        
     def apply_osteotomy(self):
         """Apply the osteotomy correction to create a simulated image"""
         if not self.osteotomy_lines or self.image is None:
-            messagebox.showinfo("Error", "Draw an osteotomy first.")
+            self.show_status("Draw an osteotomy first.", "error")
             return
             
         # Create a copy of the original image for simulation
@@ -1698,7 +1805,7 @@ class SpineForgePlanner:
             # Show the simulation window
             self.show_simulation_window()
         else:
-            messagebox.showinfo("No Changes", "No new osteotomies to apply.")
+            self.show_status("No new osteotomies to apply.", "error")
 
     def simulate_measurements(self):
         """Calculate simulated measurements after osteotomy correction"""
@@ -1829,20 +1936,30 @@ class SpineForgePlanner:
             self.image = self.original_image.copy()
             self.display_image()
             
-        messagebox.showinfo("Reset", "Osteotomy planning has been reset.")
+        self.show_status("Osteotomy planning has been reset.", "info")
         
     def place_screw(self):
         """Begin placing a screw on the image"""
         self.current_screw = "placing"
         self.osteotomy_points = []
         level = self.level_var.get()
-        messagebox.showinfo("Place Screw", 
-            f"Click to set the screw head/entry point at {level}, then click to set the trajectory/tip.")
-
+        self.show_status(
+            f"Click to set the screw head/entry point at {level}, then click to set the trajectory/tip.",
+            "info"
+        )
+        
     def generate_rod_model(self):
         """Generate a rod model based on placed screw heads"""
+        # Clear any existing rod first, regardless of whether we'll create a new one
+        self.rod_line = None
+        
         if not self.screws:
-            messagebox.showinfo("Error", "Place screws first to generate a rod model.")
+            self.show_status("Place at least 2 screws first to generate a rod model.", "error")
+            return
+        
+        if len(self.screws) < 2:
+            self.show_status("Place at least 2 screws first to generate a rod model.", "error")
+            self.display_image()  # Refresh display to remove any previous rod
             return
             
         # Get all screw heads and sort them by y-coordinate (vertically)
@@ -1861,12 +1978,12 @@ class SpineForgePlanner:
         
         # Display the rod
         self.display_image()
-        messagebox.showinfo("Rod Generated", f"A {self.rod_side.get()} rod of {self.rod_diameter.get()}mm diameter has been generated connecting all screw heads.")
-    
+        self.show_status(f"Rod generated: {self.rod_side.get()} side, {self.rod_diameter.get()}mm diameter", "success")
+        
     def export_rod_as_stl(self):
         """Export the rod model as STL for 3D printing"""
         if not self.rod_line:
-            messagebox.showinfo("Error", "Generate a rod model first.")
+            self.show_status("Generate a rod model first.", "error")
             return
             
         # Get file save location
@@ -2039,7 +2156,7 @@ class SpineForgePlanner:
                 # Save the mesh to STL file
                 final_mesh.save(filepath)
                 
-                messagebox.showinfo("Success", f"Rod model successfully exported to {filepath}")
+                self.show_status(f"Rod model successfully exported to {filepath}", "success")
                 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export STL: {str(e)}")
@@ -2178,7 +2295,7 @@ class SpineForgePlanner:
         making it suitable for clinical documentation or research.
         """
         if self.image is None:
-            messagebox.showinfo("Info", "No image loaded to save.")
+            self.show_status("No image loaded to save.", "error")
             return
 
         # Step 1: Ensure all drawing operations are complete
@@ -2231,6 +2348,7 @@ class SpineForgePlanner:
                 shot.save(path, dpi=(600, 600))  # Save with high DPI for printing
                 self.status_label.config(text="Saved.")
                 self.root.after(10_000, lambda: self.status_label.config(text=""))
+                self.show_status(f"Screenshot saved to: {path}", "success")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save screenshot:\n{e}")
 
