@@ -25,7 +25,6 @@ from stl import mesh
 from scipy.interpolate import splprep, splev
 import sys
 import time
-import cv2
 
 # Platform-specific imports for screenshot functionality
 if sys.platform == "darwin":  # macOS
@@ -73,23 +72,6 @@ class SpineForgePlanner:
             "SVA": "#1ABC9C",    # Teal
             "femoral": "#D35400" # Dark orange
         }
-        
-        # Osteotomy state
-        self.osteotomy_points = []
-        self.current_osteotomy = None
-        self.osteotomy_lines = []
-        self.is_simulated = False
-        self.implement_wedge_osteotomy()
-        
-        # Implant state
-        self.screws = []
-        self.current_screw = None
-        self.cages = []
-        
-        # Rod state
-        self.rod_points = []
-        self.rod_line = None
-        self.rod_model = None
         
         # Create a main frame that will contain all UI elements
         self.main_frame = tk.Frame(root)
@@ -155,6 +137,23 @@ class SpineForgePlanner:
         # Landmark Tab
         self.landmark_tab = tk.Frame(self.tab_control, bg="lightgray")
         self.tab_control.add(self.landmark_tab, text="Landmarks")
+        
+        # Osteotomy state
+        self.osteotomy_points = []
+        self.current_osteotomy = None
+        self.osteotomy_lines = []
+        self.is_simulated = False
+        self.implement_wedge_osteotomy()
+        
+        # Implant state
+        self.screws = []
+        self.current_screw = None
+        self.cages = []
+        
+        # Rod state
+        self.rod_points = []
+        self.rod_line = None
+        self.rod_model = None
         
         # Osteotomy Tab
         self.osteotomy_tab = tk.Frame(self.tab_control, bg="lightgray")
@@ -2064,87 +2063,82 @@ class SpineForgePlanner:
             
             # Make sure we have enough points for the osteotomy
             if len(points) < 3:
-                messagebox.showerror("Error", "Incomplete osteotomy definition. Need at least 3 points.")
+                self.show_status("Incomplete osteotomy definition. Need at least 3 points.", "error")
                 return
             
-            # Convert image to numpy array for manipulation
-            img_array = np.array(self.modified_image)
-            
             # Get the three points defining the wedge
-            p1 = points[0]  # Anterior point
+            p1 = points[0]  # Anterior point (apex)
             p2 = points[1]  # Lower posterior point
             p3 = points[2]  # Upper posterior point
             
             # Calculate angle of wedge for rotation
             angle = self.calculate_wedge_angle(p1, p2, p3) / 2  # Half angle for each segment
             
-            # Get image dimensions
-            height, width = img_array.shape[:2]
+            # Convert image to PIL Image if needed
+            if isinstance(self.modified_image, np.ndarray):
+                self.modified_image = Image.fromarray(self.modified_image)
             
-            # Create separate masks for upper and lower portions
-            upper_mask = np.zeros((height, width), dtype=np.uint8)
-            lower_mask = np.zeros((height, width), dtype=np.uint8)
+            # Get image dimensions
+            width, height = self.modified_image.size
+            
+            # Create the upper and lower portions of the image
+            # Split at the apex point
+            apex_y = p1[1]
+            
+            # Create masks for upper and lower portions using PIL
+            upper_mask = Image.new('L', (width, height), 0)
+            lower_mask = Image.new('L', (width, height), 0)
+            
+            # Draw polygons on masks
+            upper_draw = ImageDraw.Draw(upper_mask)
+            lower_draw = ImageDraw.Draw(lower_mask)
             
             # Define polygon for upper portion (above wedge)
-            upper_polygon = np.array([
-                p1,
-                p3,
-                [width-1, 0],
-                [0, 0]
-            ], dtype=np.int32)
+            upper_polygon = [
+                tuple(p1),
+                tuple(p3),
+                (width-1, 0),
+                (0, 0)
+            ]
             
             # Define polygon for lower portion (below wedge)
-            lower_polygon = np.array([
-                p1,
-                p2,
-                [width-1, height-1],
-                [0, height-1]
-            ], dtype=np.int32)
+            lower_polygon = [
+                tuple(p1),
+                tuple(p2),
+                (width-1, height-1),
+                (0, height-1)
+            ]
             
-            # Fill polygons in masks
-            cv2.fillPoly(upper_mask, [upper_polygon], 255)
-            cv2.fillPoly(lower_mask, [lower_polygon], 255)
+            # Fill polygons
+            upper_draw.polygon(upper_polygon, fill=255)
+            lower_draw.polygon(lower_polygon, fill=255)
             
-            # Create rotation matrices
-            M_upper = cv2.getRotationMatrix2D((p1[0], p1[1]), angle, 1)
-            M_lower = cv2.getRotationMatrix2D((p1[0], p1[1]), -angle, 1)
+            # Create copies of the image for upper and lower portions
+            upper_part = Image.new(self.modified_image.mode, (width, height))
+            lower_part = Image.new(self.modified_image.mode, (width, height))
             
-            # Create separate arrays for upper and lower portions
-            if len(img_array.shape) == 3:  # Color image
-                upper_part = np.zeros_like(img_array)
-                lower_part = np.zeros_like(img_array)
-                
-                for c in range(img_array.shape[2]):
-                    # Extract channel
-                    channel = img_array[:,:,c]
-                    
-                    # Apply masks
-                    upper_part[:,:,c] = np.where(upper_mask == 255, channel, 0)
-                    lower_part[:,:,c] = np.where(lower_mask == 255, channel, 0)
-                    
-                    # Rotate portions
-                    upper_part[:,:,c] = cv2.warpAffine(upper_part[:,:,c], M_upper, (width, height))
-                    lower_part[:,:,c] = cv2.warpAffine(lower_part[:,:,c], M_lower, (width, height))
-                
-                # Combine rotated portions
-                result = np.zeros_like(img_array)
-                for c in range(img_array.shape[2]):
-                    # Use logical OR to combine channels (max of each channel)
-                    result[:,:,c] = np.maximum(upper_part[:,:,c], lower_part[:,:,c])
-            else:
-                # Grayscale image
-                upper_part = np.where(upper_mask == 255, img_array, 0)
-                lower_part = np.where(lower_mask == 255, img_array, 0)
-                
-                # Rotate portions
-                upper_part = cv2.warpAffine(upper_part, M_upper, (width, height))
-                lower_part = cv2.warpAffine(lower_part, M_lower, (width, height))
-                
-                # Combine rotated portions
-                result = np.maximum(upper_part, lower_part)
+            # Apply masks to extract portions
+            upper_part.paste(self.modified_image, mask=upper_mask)
+            lower_part.paste(self.modified_image, mask=lower_mask)
             
-            # Update the image with the result
-            self.modified_image = Image.fromarray(result)
+            # Rotate portions around the apex point
+            # For upper part, rotate clockwise
+            upper_rotated = upper_part.rotate(-angle, center=(p1[0], p1[1]), fillcolor=0)
+            
+            # For lower part, rotate counter-clockwise
+            lower_rotated = lower_part.rotate(angle, center=(p1[0], p1[1]), fillcolor=0)
+            
+            # Combine the rotated portions
+            # Create a new image
+            result = Image.new(self.modified_image.mode, (width, height))
+            
+            # Paste the rotated portions
+            # First paste lower, then upper with its mask to preserve transparency
+            result.paste(lower_rotated)
+            result.paste(upper_rotated, mask=upper_rotated.split()[-1] if upper_rotated.mode == 'RGBA' else None)
+            
+            # Update the modified image
+            self.modified_image = result
             
             # Mark as applied
             self.osteotomy_lines[osteotomy_index]['applied'] = True
@@ -2166,6 +2160,11 @@ class SpineForgePlanner:
                 self.osteotomy_applied = False
         
         # Update display and measurements
+        if self.osteotomy_applied and self.modified_image:
+            self.image = self.modified_image
+        else:
+            self.image = self.original_image
+            
         self.display_image()
         self.update_measurements(simulated=True)
         self.is_simulated = True
@@ -2175,10 +2174,9 @@ class SpineForgePlanner:
         if not self.osteotomy_lines or self.image is None:
             self.show_status("Draw an osteotomy first.", "error")
             return
-            
+        
         # Create a copy of the original image for simulation
         self.simulated_image = self.original_image.copy()
-        img_array = np.array(self.simulated_image)
         
         # Track whether any osteotomies were actually applied
         applied_any = False
@@ -2186,120 +2184,96 @@ class SpineForgePlanner:
         for osteotomy in self.osteotomy_lines:
             if osteotomy["applied"]:
                 continue
-                
+            
             technique = osteotomy["technique"]
             points = osteotomy["points"]
             
-            # Process based on technique and following the examples from your images
+            # Process based on technique
             if technique == "Wedge" and len(points) >= 3:
+                # Apply wedge osteotomy using PIL
                 # Get the three points defining the wedge
                 anterior = points[0]
                 lower_posterior = points[1]
                 upper_posterior = points[2]
                 
-                # Define wedge region
-                min_x = min(p[0] for p in points)
-                max_x = max(p[0] for p in points)
+                # Calculate wedge angle
+                wedge_angle = self.calculate_wedge_angle(anterior, lower_posterior, upper_posterior)
                 
-                # For wedge, we typically close the wedge by bringing the upper portion down
-                # This creates the appearance of correcting kyphosis 
-                height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
-                
-                # Calculate wedge properties
+                # Create a transform that closes the wedge
+                # For simplicity, we'll shift the upper portion down
                 wedge_height = abs(upper_posterior[1] - lower_posterior[1])
-                apex_y = anterior[1]
                 
-                # Apply transformation - move everything above wedge
-                for x in range(width):
-                    # Only process within wedge region
-                    if x < min_x or x > max_x:
-                        continue
-                    
-                    # Calculate linear interpolation factor based on position within wedge
-                    if max_x == min_x:
-                        factor = 0
-                    else:
-                        factor = (x - min_x) / (max_x - min_x)
-                    
-                    # Find the wedge height at this x position
-                    y_shift = int(wedge_height * (1 - factor))
-                    
-                    # Shift pixels above wedge downward
-                    for y in range(apex_y):
-                        if y + y_shift < height:
-                            if len(img_array.shape) == 3:
-                                img_array[y, x] = img_array[min(y + y_shift, height-1), x]
-                            else:
-                                img_array[y, x] = img_array[min(y + y_shift, height-1), x]
-            
+                # Create a new image with the wedge closed
+                width, height = self.simulated_image.size
+                new_img = Image.new(self.simulated_image.mode, (width, height))
+                
+                # Copy lower portion (below wedge)
+                lower_box = (0, anterior[1], width, height)
+                lower_region = self.simulated_image.crop(lower_box)
+                new_img.paste(lower_region, (0, anterior[1]))
+                
+                # Copy upper portion (above wedge) and shift down
+                upper_box = (0, 0, width, anterior[1])
+                upper_region = self.simulated_image.crop(upper_box)
+                new_img.paste(upper_region, (0, max(0, anterior[1] - wedge_height)))
+                
+                self.simulated_image = new_img
+                
             elif technique == "Resect" and len(points) >= 4:
-                # Points should be: bottom-left, bottom-right, top-left, top-right
-                # or equivalently: inferior-anterior, inferior-posterior, superior-anterior, superior-posterior
-                
-                # Get resection rectangle bounds
+                # Resection removes a section and brings segments together
                 min_y = min(points[0][1], points[1][1])
                 max_y = max(points[2][1], points[3][1])
                 resect_height = max_y - min_y
                 
-                height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
+                width, height = self.simulated_image.size
+                new_img = Image.new(self.simulated_image.mode, (width, height - resect_height))
                 
-                # Apply transformation - remove resection area and join segments
-                for x in range(width):
-                    # Shift all pixels above resection down by resection height
-                    for y in range(min_y):
-                        new_y = y + resect_height
-                        if new_y < height:
-                            if len(img_array.shape) == 3:
-                                img_array[y, x] = img_array[new_y, x]
-                            else:
-                                img_array[y, x] = img_array[new_y, x]
-            
+                # Copy portion below resection
+                if min_y > 0:
+                    lower_box = (0, 0, width, min_y)
+                    lower_region = self.simulated_image.crop(lower_box)
+                    new_img.paste(lower_region, (0, 0))
+                
+                # Copy portion above resection
+                if max_y < height:
+                    upper_box = (0, max_y, width, height)
+                    upper_region = self.simulated_image.crop(upper_box)
+                    new_img.paste(upper_region, (0, min_y))
+                
+                self.simulated_image = new_img
+                
             elif technique == "Open" and len(points) >= 2:
-                # Opening creates space between vertebrae
+                # Opening creates space
                 p1, p2 = points[0], points[1]
                 
-                # Calculate line properties
-                height, width = img_array.shape if len(img_array.shape) == 2 else img_array.shape[:2]
+                # Calculate opening amount
+                opening_amount = int(osteotomy.get("expected_correction", 10) * 3)  # Scale to pixels
                 
-                # Calculate line equation
-                if p2[0] - p1[0] == 0:  # Vertical line
-                    slope = float('inf')
-                    intercept = p1[0]
-                else:
-                    slope = (p2[1] - p1[1]) / (p2[0] - p1[0])
-                    intercept = p1[1] - slope * p1[0]
+                # Simple horizontal opening at the line
+                line_y = (p1[1] + p2[1]) // 2
                 
-                # Calculate opening amount based on expected correction
-                opening_amount = int(osteotomy["expected_correction"] * 3)  # Scale to pixels
+                width, height = self.simulated_image.size
+                new_img = Image.new(self.simulated_image.mode, (width, height + opening_amount))
                 
-                # Create a copy of the image to work from
-                temp_array = np.copy(img_array)
+                # Copy lower portion
+                if line_y > 0:
+                    lower_box = (0, 0, width, line_y)
+                    lower_region = self.simulated_image.crop(lower_box)
+                    new_img.paste(lower_region, (0, 0))
                 
-                # Move pixels above the line up by opening_amount
-                for x in range(width):
-                    if slope != float('inf'):
-                        # Calculate y-value on the line at this x
-                        line_y = int(slope * x + intercept)
-                    else:
-                        # For vertical line
-                        if x != intercept:
-                            continue
-                        line_y = height // 2
-                    
-                    # For pixels above the line, shift up
-                    for y in range(line_y):
-                        target_y = max(0, y - opening_amount)
-                        if len(img_array.shape) == 3:
-                            img_array[target_y, x] = temp_array[y, x]
-                        else:
-                            img_array[target_y, x] = temp_array[y, x]
+                # Copy upper portion with offset  
+                if line_y < height:
+                    upper_box = (0, line_y, width, height)
+                    upper_region = self.simulated_image.crop(upper_box)
+                    new_img.paste(upper_region, (0, line_y + opening_amount))
+                
+                self.simulated_image = new_img
             
             osteotomy["applied"] = True
             applied_any = True
         
         if applied_any:
             # Update the simulated image
-            self.simulated_image = Image.fromarray(img_array)
             self.is_simulated = True
             
             # Update the measurements based on the simulated correction
