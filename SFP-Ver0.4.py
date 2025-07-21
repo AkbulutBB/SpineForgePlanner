@@ -61,6 +61,12 @@ class SpineForgePlanner:
         self.label_offsets = {}  # To store custom positions for measurement labels
         self.label_anchor_points = {}  # To store anchor points for measurement lines
         
+        # Add these lines in your __init__ method after the existing state variables
+        self.is_calibrated = False
+        self.calibration_mode = False
+        self.calibration_points = []
+        self.calibration_line_id = None
+        
         # Visual representation colors for different measurements
         self.colors = {
             "CBVA": "#FF5733",  # Orange-red
@@ -105,10 +111,13 @@ class SpineForgePlanner:
         self.status_label.pack(pady=(5,0))
 
         # Top row for file actions
+        # Replace the file_frame section with this:
         file_frame = tk.Frame(self.sidebar, bg="lightgray")
         file_frame.pack(pady=5)
-        self.load_button = tk.Button(file_frame, text="Load DICOM", command=self.load_dicom)
+        self.load_button = tk.Button(file_frame, text="Load Image", command=self.load_image)
         self.load_button.pack(side="left", padx=2)
+        self.calibrate_button = tk.Button(file_frame, text="Calibrate Image", command=self.start_calibration)
+        self.calibrate_button.pack(side="left", padx=2)
         self.save_button = tk.Button(file_frame, text="Save Screenshot", command=self.save_screenshot)
         self.save_button.pack(side="left", padx=2)
         self.copy_button = tk.Button(file_frame, text="Copy Results", command=self.copy_to_clipboard)
@@ -413,6 +422,12 @@ class SpineForgePlanner:
         measurements_canvas.create_window((0, 0), window=self.measurements_frame, 
                                         anchor="nw", width=measurements_canvas.winfo_width())
         
+        # Calibration status display
+        self.calib_frame = tk.Frame(self.sidebar, bg="lightgray")
+        self.calib_frame.pack(fill="x", padx=5, pady=2)
+        self.calib_status = tk.Label(self.calib_frame, text="Not calibrated", bg="lightcoral", 
+                                    fg="white", font=("Arial", 9, "bold"))
+        self.calib_status.pack(fill="x")
         
         def _on_sidebar_mousewheel(event):
             right_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
@@ -542,6 +557,15 @@ class SpineForgePlanner:
         
         # Set initial instruction
         self.info_label.config(text="Load a DICOM image to begin")
+
+    # Add this method to update calibration status display:
+    def update_calibration_status(self):
+        if self.is_calibrated:
+            self.calib_status.config(text=f"Calibrated: {self.pixel_spacing[0]:.3f} mm/pixel", 
+                                    bg="lightgreen", fg="black")
+        else:
+            self.calib_status.config(text="Not calibrated - measurements in pixels", 
+                                    bg="lightcoral", fg="white")
 
     def update_implant_options(self):
         """Show/hide appropriate parameter frames based on selected implant type"""
@@ -694,25 +718,52 @@ class SpineForgePlanner:
                 self.info_label.config(text=f"Click to place: {label}")
                 return
                 
-    def load_dicom(self):
+    def load_image(self):
         try:
-            filepath = filedialog.askopenfilename(filetypes=[("DICOM files", "*.dcm")])
+            filepath = filedialog.askopenfilename(
+                filetypes=[
+                    ("All supported", "*.dcm;*.jpg;*.jpeg;*.png"),
+                    ("DICOM files", "*.dcm"), 
+                    ("JPEG files", "*.jpg;*.jpeg"),
+                    ("PNG files", "*.png")
+                ]
+            )
             if not filepath:
                 return
-                
-            self.ds = pydicom.dcmread(filepath)
-            pixel_array = self.ds.pixel_array.astype(np.float32)
-            norm_img = ((pixel_array - np.min(pixel_array)) / np.ptp(pixel_array) * 255).astype(np.uint8)
-            self.original_image = Image.fromarray(norm_img)
-            self.image = self.original_image.copy()  # Make a copy for transformations
             
-            # Extract pixel spacing
-            if hasattr(self.ds, 'PixelSpacing'):
-                spacing = self.ds.PixelSpacing
-                self.pixel_spacing = [float(spacing[0]), float(spacing[1])]
-            else:
-                self.pixel_spacing = [1.0, 1.0]
-                messagebox.showwarning("Warning", "No pixel spacing found in DICOM. Using default values.")
+            file_ext = filepath.lower().split('.')[-1]
+            
+            if file_ext == 'dcm':
+                # DICOM handling (existing logic)
+                self.ds = pydicom.dcmread(filepath)
+                pixel_array = self.ds.pixel_array.astype(np.float32)
+                norm_img = ((pixel_array - np.min(pixel_array)) / np.ptp(pixel_array) * 255).astype(np.uint8)
+                self.original_image = Image.fromarray(norm_img)
+                
+                # Extract pixel spacing
+                if hasattr(self.ds, 'PixelSpacing'):
+                    spacing = self.ds.PixelSpacing
+                    self.pixel_spacing = [float(spacing[0]), float(spacing[1])]
+                    self.is_calibrated = True
+                else:
+                    self.pixel_spacing = [1.0, 1.0]
+                    self.is_calibrated = False
+                    messagebox.showwarning("Warning", "No pixel spacing found in DICOM. Please calibrate the image.")
+            
+            elif file_ext in ['jpg', 'jpeg', 'png']:
+                # Handle JPEG/PNG files
+                self.original_image = Image.open(filepath)
+                if self.original_image.mode != 'L':  # Convert to grayscale if not already
+                    self.original_image = self.original_image.convert('L')
+                
+                # No calibration data available for JPEG/PNG
+                self.pixel_spacing = [1.0, 1.0]  # Default values
+                self.is_calibrated = False
+                self.ds = None
+                messagebox.showinfo("Calibration Required", 
+                                  "Please calibrate the image using two known points.\nClick 'Calibrate Image' button.")
+            
+            self.image = self.original_image
             
             # Reset zoom and position for new image
             self.zoom = 0.1
@@ -722,20 +773,15 @@ class SpineForgePlanner:
             self.landmarks = {}
             self.label_offsets = {}
             self.label_anchor_points = {}
-            
-            # Clear any osteotomy state
-            self.osteotomy_points = []
-            self.osteotomy_applied = False
-            self.original_landmarks = {}
-            if hasattr(self, 'original_transformed_image'):
-                self.original_transformed_image = None
-            
             self.update_measurements()
-            self.display_image()
-            self.info_label.config(text="DICOM loaded successfully. Place landmarks.")
             
+            self.display_image()
+            self.info_label.config(text="Image loaded successfully. " + 
+                                 ("Calibrate first!" if not self.is_calibrated else "Place landmarks."))
+            
+            self.update_calibration_status()
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load DICOM file: {str(e)}")
+            messagebox.showerror("Error", f"Failed to load image file: {str(e)}")
     
     def update_contrast(self, val):
         if self.original_image is None:
@@ -778,31 +824,66 @@ class SpineForgePlanner:
             messagebox.showerror("Error", f"Display error: {str(e)}")
 
     def on_click(self, event):
-        if self.current_landmark_name:
-            # Convert from canvas coordinates to image coordinates
-            x = int((event.x - self.offset[0]) / self.zoom)
-            y = int((event.y - self.offset[1]) / self.zoom)
+        if self.image is None:
+            return
+        
+        # Convert from canvas coordinates to image coordinates
+        x = int((event.x - self.offset[0]) / self.zoom)
+        y = int((event.y - self.offset[1]) / self.zoom)
+        
+        # Check if coordinates are within image boundaries
+        if not (0 <= x < self.image.width and 0 <= y < self.image.height):
+            return
+        
+        # Handle calibration mode
+        if self.calibration_mode:
+            self.calibration_points.append((x, y))
             
-            # Check if coordinates are within image boundaries
-            if self.image and 0 <= x < self.image.width and 0 <= y < self.image.height:
-                self.landmarks[self.current_landmark_name] = (x, y)
+            if len(self.calibration_points) == 1:
+                self.info_label.config(text="Calibration: Click second point")
+            elif len(self.calibration_points) == 2:
+                # Draw calibration line
+                p1_canvas = (self.calibration_points[0][0] * self.zoom + self.offset[0],
+                            self.calibration_points[0][1] * self.zoom + self.offset[1])
+                p2_canvas = (self.calibration_points[1][0] * self.zoom + self.offset[0],
+                            self.calibration_points[1][1] * self.zoom + self.offset[1])
                 
-                # Special handling for femoral head landmarks
-                if self.current_landmark_name in ["LFH_edge1", "LFH_edge2", "RFH_edge1", "RFH_edge2"]:
-                    # If this is the second point of a femoral head, draw a preview circle
-                    if (self.current_landmark_name == "LFH_edge2" and "LFH_edge1" in self.landmarks):
-                        p1 = self.landmarks["LFH_edge1"]
-                        p2 = (x, y)
-                        self.show_status(f"Left femoral head circle defined!", "success")
-                    elif (self.current_landmark_name == "RFH_edge2" and "RFH_edge1" in self.landmarks):
-                        p1 = self.landmarks["RFH_edge1"]
-                        p2 = (x, y)
-                        self.show_status(f"Right femoral head circle defined!", "success")
+                if self.calibration_line_id:
+                    self.canvas.delete(self.calibration_line_id)
                 
-                self.current_landmark_name = None
-                self.info_label.config(text="Landmark placed. Select next landmark.")
-                self.display_image()
-                self.update_measurements()
+                self.calibration_line_id = self.canvas.create_line(
+                    p1_canvas[0], p1_canvas[1], p2_canvas[0], p2_canvas[1],
+                    fill='lime', width=3, tags="calibration"
+                )
+                
+                # Show distance in pixels
+                pixel_dist = math.sqrt((self.calibration_points[1][0] - self.calibration_points[0][0])**2 + 
+                                     (self.calibration_points[1][1] - self.calibration_points[0][1])**2)
+                self.info_label.config(text=f"Distance: {pixel_dist:.1f} pixels. Enter real distance.")
+                
+                self.finish_calibration()
+            return
+        
+        # Handle landmark placement (your existing logic)
+        if self.current_landmark_name:
+            self.landmarks[self.current_landmark_name] = (x, y)
+            
+            # Special handling for femoral head landmarks
+            if self.current_landmark_name in ["LFH_edge1", "LFH_edge2", "RFH_edge1", "RFH_edge2"]:
+                # If this is the second point of a femoral head, draw a preview circle
+                if (self.current_landmark_name == "LFH_edge2" and "LFH_edge1" in self.landmarks):
+                    p1 = self.landmarks["LFH_edge1"]
+                    p2 = (x, y)
+                    self.show_status(f"Left femoral head circle defined!", "success")
+                elif (self.current_landmark_name == "RFH_edge2" and "RFH_edge1" in self.landmarks):
+                    p1 = self.landmarks["RFH_edge1"]
+                    p2 = (x, y)
+                    self.show_status(f"Right femoral head circle defined!", "success")
+            
+            self.current_landmark_name = None
+            self.info_label.config(text="Landmark placed. Select next landmark.")
+            self.display_image()
+            self.update_measurements()
                 
         
             
@@ -1012,6 +1093,96 @@ class SpineForgePlanner:
             self.status_area.config(bg="#333333")
             if hasattr(self, 'clear_timer'):
                 self.clear_timer = None
+    
+    def start_calibration(self):
+        if self.image is None:
+            messagebox.showwarning("Warning", "Please load an image first.")
+            return
+        
+        self.calibration_mode = True
+        self.calibration_points = []
+        self.current_landmark_name = None  # Disable landmark placement
+        self.info_label.config(text="Calibration: Click first point")
+        
+        # Clear any existing calibration line
+        if self.calibration_line_id:
+            self.canvas.delete(self.calibration_line_id)
+            self.calibration_line_id = None
+    
+    def finish_calibration(self):
+        if len(self.calibration_points) != 2:
+            return
+        
+        # Ask user for real-world distance
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Calibration Distance")
+        dialog.geometry("300x150")
+        dialog.resizable(False, False)
+        dialog.grab_set()  # Make it modal
+        
+        # Center the dialog
+        dialog.transient(self.root)
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        tk.Label(dialog, text="Enter the real distance between\nthe two points (in mm):", 
+                 font=("Arial", 10)).pack(pady=10)
+        
+        distance_var = tk.StringVar()
+        entry = tk.Entry(dialog, textvariable=distance_var, font=("Arial", 12), width=15)
+        entry.pack(pady=5)
+        entry.focus()
+        
+        self.update_calibration_status()
+        
+        def apply_calibration():
+            try:
+                real_distance = float(distance_var.get())
+                if real_distance <= 0:
+                    raise ValueError("Distance must be positive")
+                
+                # Calculate pixel distance
+                p1, p2 = self.calibration_points
+                pixel_distance = math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)
+                
+                # Calculate pixel spacing (mm per pixel)
+                mm_per_pixel = real_distance / pixel_distance
+                self.pixel_spacing = [mm_per_pixel, mm_per_pixel]
+                self.is_calibrated = True
+                
+                self.calibration_mode = False
+                self.info_label.config(text=f"Calibrated: {mm_per_pixel:.3f} mm/pixel. Place landmarks.")
+                
+                # Update all existing measurements
+                self.update_measurements()
+                self.display_image()
+                
+                dialog.destroy()
+                
+            except ValueError as e:
+                messagebox.showerror("Error", "Please enter a valid positive number.")
+        
+        def cancel_calibration():
+            self.calibration_mode = False
+            self.calibration_points = []
+            if self.calibration_line_id:
+                self.canvas.delete(self.calibration_line_id)
+                self.calibration_line_id = None
+            self.info_label.config(text="Calibration cancelled.")
+            dialog.destroy()
+        
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(pady=15)
+        
+        tk.Button(button_frame, text="Apply", command=apply_calibration, 
+                  bg="lightgreen", width=10).pack(side="left", padx=5)
+        tk.Button(button_frame, text="Cancel", command=cancel_calibration, 
+                  bg="lightcoral", width=10).pack(side="left", padx=5)
+        
+        # Bind Enter key to apply
+        entry.bind('<Return>', lambda e: apply_calibration())
     
     def end_persistent_instruction(self):
         """Call this when a user completes a procedure requiring instructions"""
