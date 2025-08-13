@@ -2,7 +2,7 @@ from cx_Freeze import setup, Executable
 
 setup(
     name="SpineForgePlanner",
-    version="1.0",
+    version="0.4",
     description="Spinal Alignment GUI Tool",
-    executables=[Executable("FirstDraft.py", base="Win32GUI")]
+    executables=[Executable("SFP-Ver0.4.py", base="Win32GUI")]
 )

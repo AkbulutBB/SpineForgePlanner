@@ -1332,6 +1332,38 @@ class SpineForgePlanner:
         radius = math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2) / 2
         return (center_x, center_y), radius
 
+    def calculate_acute_slope(self, p1, p2):
+        """Calculate the acute angle of a line relative to horizontal (0-90 degrees)"""
+        dx = (p2[0] - p1[0]) * self.pixel_spacing[1]
+        dy = (p2[1] - p1[1]) * self.pixel_spacing[0]
+        angle = abs(math.degrees(math.atan2(-dy, dx)))
+        
+        # Ensure we get the acute angle (0-90 degrees)
+        if angle > 90:
+            angle = 180 - angle
+        
+        return angle
+    
+    def calculate_acute_angle_between_lines(self, p1_start, p1_end, p2_start, p2_end):
+        """Calculate the acute angle between two lines defined by their endpoints"""
+        # Calculate direction vectors
+        dx1 = (p1_end[0] - p1_start[0]) * self.pixel_spacing[1]
+        dy1 = (p1_end[1] - p1_start[1]) * self.pixel_spacing[0]
+        dx2 = (p2_end[0] - p2_start[0]) * self.pixel_spacing[1]
+        dy2 = (p2_end[1] - p2_start[1]) * self.pixel_spacing[0]
+        
+        # Calculate vectors
+        vec1 = np.array([dx1, dy1])
+        vec2 = np.array([dx2, dy2])
+        
+        # Calculate acute angle between vectors
+        cos_angle = np.clip(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)), -1.0, 1.0)
+        angle = math.degrees(math.acos(abs(cos_angle)))
+        
+        # Ensure acute angle (0-90 degrees)
+        return min(angle, 180 - angle)
+
+
     def draw_landmarks(self):
         # Helper function to convert image coordinates to canvas coordinates
         def scaled(pt):
@@ -1408,9 +1440,9 @@ class SpineForgePlanner:
             self.canvas.create_line(c7p_x, c2p_y, c7p_x, c7p_y, fill=self.colors["C2-C7"], width=1, dash=(4, 2))
             
             # Display C2-C7 lordosis
-            c2 = self.calculate_angle(lm["C2_ant"], lm["C2_post"])
-            c7 = self.calculate_angle(lm["C7_ant"], lm["C7_post"])
-            lordosis = abs(c2 - c7)
+            lordosis = self.calculate_acute_angle_between_lines(
+                lm["C2_ant"], lm["C2_post"], lm["C7_ant"], lm["C7_post"]
+            )
             
             # Store midpoint as anchor for lordosis label
             lordosis_anchor = ((c2p_x + c7p_x) / 2, (c2p_y + c7p_y) / 2)
@@ -1464,7 +1496,7 @@ class SpineForgePlanner:
             t1a_x, t1a_y = scaled(lm["T1_ant"])
             t1p_x, t1p_y = scaled(lm["T1_post"])
             self.canvas.create_line(t1a_x, t1a_y, t1p_x, t1a_y, fill=self.colors["T1"], width=1, dash=(4, 2))
-            t1_slope = self.calculate_angle(lm["T1_ant"], lm["T1_post"])
+            t1_slope = self.calculate_acute_slope(lm["T1_ant"], lm["T1_post"])
             
             # Store T1 midpoint as anchor
             t1_anchor = ((t1a_x + t1p_x)/2, t1a_y - 20)
@@ -1504,9 +1536,9 @@ class SpineForgePlanner:
             self.canvas.create_line(l1a_x, l1a_y, l5a_x, l5a_y, fill=self.colors["Lumbar"], width=1, dash=(5, 3))
             self.canvas.create_line(l1p_x, l1p_y, l5p_x, l5p_y, fill=self.colors["Lumbar"], width=1, dash=(5, 3))
             
-            l1_angle = self.calculate_angle(lm["L1_ant"], lm["L1_post"])
-            l5_angle = self.calculate_angle(lm["L5_ant"], lm["L5_post"])
-            ll = abs(l1_angle - l5_angle)
+            ll = self.calculate_acute_angle_between_lines(
+                lm["L1_ant"], lm["L1_post"], lm["L5_ant"], lm["L5_post"]
+            )
             
             # Store L1-L5 midpoint as anchor
             ll_anchor = ((l1a_x + l5a_x)/2 - 25, (l1a_y + l5a_y)/2)
@@ -1540,7 +1572,7 @@ class SpineForgePlanner:
             # Draw horizontal reference line
             self.canvas.create_line(s1a_x, s1a_y, s1p_x + 40, s1a_y, fill=self.colors["Sacral"], width=1, dash=(4, 2))
             
-            s1_slope = self.calculate_angle(lm["S1_ant"], lm["S1_post"])
+            s1_slope = self.calculate_acute_slope(lm["S1_ant"], lm["S1_post"])
             
             # Store S1 anchor point
             s1_anchor = (s1p_x + 20, s1a_y - 15)
@@ -1629,6 +1661,8 @@ class SpineForgePlanner:
             dx_pt = (sacral_mid[0] - bicoxo[0]) * px
             dy_pt = (sacral_mid[1] - bicoxo[1]) * py
             pt = abs(math.degrees(math.atan2(dx_pt, -dy_pt)))
+            if pt > 90:
+                pt = 180 - pt
             
             # Calculate pelvic incidence using the perpendicular
             # Sacral vector and its perpendicular
@@ -2385,28 +2419,38 @@ class SpineForgePlanner:
         if estimated:
             for name, label in self.measurement_labels.items():
                 baseline_values[name] = label["text"]
-
+    
         update("CBVA", f"{math.degrees(math.atan2((lm['brow'][0]-lm['chin'][0])*px, -(lm['brow'][1]-lm['chin'][1])*py)):.2f}°") if all(k in lm for k in ["chin", "brow"]) else update("CBVA", "--")
         
         if all(k in lm for k in ["C2_ant", "C2_post", "C7_ant", "C7_post"]):
-            c2 = self.calculate_angle(lm["C2_ant"], lm["C2_post"])
-            c7 = self.calculate_angle(lm["C7_ant"], lm["C7_post"])
-            update("C2–C7 Lordosis", f"{abs(c2 - c7):.2f}°")
+            c2_c7_lordosis = self.calculate_acute_angle_between_lines(
+                lm["C2_ant"], lm["C2_post"], lm["C7_ant"], lm["C7_post"]
+            )
+            update("C2–C7 Lordosis", f"{c2_c7_lordosis:.2f}°", baseline_values.get("C2–C7 Lordosis") if estimated else None)
         else:
             update("C2–C7 Lordosis", "--")
             
         update("C2–C7 SVA", f"{abs((lm['C2_post'][0] - lm['C7_post'][0]) * px):.2f} mm") if all(k in lm for k in ["C2_post", "C7_post"]) else update("C2–C7 SVA", "--")
         
-        update("T1 Slope", f"{self.calculate_angle(lm['T1_ant'], lm['T1_post']):.2f}°") if all(k in lm for k in ["T1_ant", "T1_post"]) else update("T1 Slope", "--")
+        if all(k in lm for k in ["T1_ant", "T1_post"]):
+            t1_slope = self.calculate_acute_slope(lm['T1_ant'], lm['T1_post'])
+            update("T1 Slope", f"{t1_slope:.2f}°", baseline_values.get("T1 Slope") if estimated else None)
+        else:
+            update("T1 Slope", "--")
         
         if all(k in lm for k in ["L1_ant", "L1_post", "L5_ant", "L5_post"]):
-            l1 = self.calculate_angle(lm["L1_ant"], lm["L1_post"])
-            l5 = self.calculate_angle(lm["L5_ant"], lm["L5_post"])
-            update("Lumbar Lordosis", f"{abs(l1 - l5):.2f}°")
+            lumbar_lordosis = self.calculate_acute_angle_between_lines(
+                lm["L1_ant"], lm["L1_post"], lm["L5_ant"], lm["L5_post"]
+            )
+            update("Lumbar Lordosis", f"{lumbar_lordosis:.2f}°", baseline_values.get("Lumbar Lordosis") if estimated else None)
         else:
             update("Lumbar Lordosis", "--")
             
-        update("Sacral Slope", f"{self.calculate_angle(lm['S1_ant'], lm['S1_post']):.2f}°") if all(k in lm for k in ["S1_ant", "S1_post"]) else update("Sacral Slope", "--")
+        if all(k in lm for k in ["S1_ant", "S1_post"]):
+            sacral_slope = self.calculate_acute_slope(lm['S1_ant'], lm['S1_post'])
+            update("Sacral Slope", f"{sacral_slope:.2f}°", baseline_values.get("Sacral Slope") if estimated else None)
+        else:
+            update("Sacral Slope", "--")
         
         if all(k in lm for k in ["S1_ant", "S1_post"]) and all(k in lm for k in ["LFH_edge1", "LFH_edge2", "RFH_edge1", "RFH_edge2"]):
             # Calculate femoral head centers
@@ -2423,7 +2467,10 @@ class SpineForgePlanner:
             dx_pt = (sacral_mid[0] - bicoxo[0]) * px
             dy_pt = (sacral_mid[1] - bicoxo[1]) * py
             pt = abs(math.degrees(math.atan2(dx_pt, -dy_pt)))
-            update("Pelvic Tilt", f"{pt:.2f}°")
+            # Ensure acute angle for pelvic tilt
+            if pt > 90:
+                pt = 180 - pt
+            update("Pelvic Tilt", f"{pt:.2f}°", baseline_values.get("Pelvic Tilt") if estimated else None)
             
             # Calculate PI using the perpendicular to sacral endplate
             sacral_vec = np.array([(lm["S1_post"][0] - lm["S1_ant"][0]) * px, (lm["S1_post"][1] - lm["S1_ant"][1]) * py])
@@ -2434,15 +2481,16 @@ class SpineForgePlanner:
             hip_vec = hip_vec / np.linalg.norm(hip_vec)
             
             cos_pi = np.clip(np.dot(sacral_perp, hip_vec), -1.0, 1.0)
-            pi_angle = math.degrees(math.acos(cos_pi))
+            pi_angle = math.degrees(math.acos(abs(cos_pi)))  # Added abs() here
+            pi_angle = min(pi_angle, 180 - pi_angle)  # Ensure acute angle
             
-            update("PI (vector)", f"{pi_angle:.2f}°")
+            update("PI (vector)", f"{pi_angle:.2f}°", baseline_values.get("PI (vector)") if estimated else None)
         else:
             update("Pelvic Tilt", "--")
             update("PI (vector)", "--")
             
         update("SVA", f"{abs((lm['C7_post'][0] - lm['S1_post'][0]) * px):.2f} mm") if all(k in lm for k in ["C7_post", "S1_post"]) else update("SVA", "--")
-
+    
         if self.osteotomies and any(o["applied"] for o in self.osteotomies):
             self.estimated_label.pack(pady=(20,5))
             self.estimated_container.pack(fill="x", padx=5, pady=5)
