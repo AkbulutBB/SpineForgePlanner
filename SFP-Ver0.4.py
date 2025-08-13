@@ -66,6 +66,7 @@ class SpineForgePlanner:
         self.calibration_mode = False
         self.calibration_points = []
         self.calibration_line_id = None
+        self.calibration_angle = None
         
         # Visual representation colors for different measurements
         self.colors = {
@@ -560,7 +561,10 @@ class SpineForgePlanner:
     # Add this method to update calibration status display:
     def update_calibration_status(self):
         if self.is_calibrated:
-            self.calib_status.config(text=f"Calibrated: {self.pixel_spacing[0]:.3f} mm/pixel", 
+            angle_text = ""
+            if self.calibration_angle is not None:
+                angle_text = f" | Line: {self.calibration_angle:.1f}°"
+            self.calib_status.config(text=f"Calibrated: {self.pixel_spacing[0]:.3f} mm/pixel{angle_text}", 
                                     bg="lightgreen", fg="black")
         else:
             self.calib_status.config(text="Not calibrated - measurements in pixels", 
@@ -1115,7 +1119,7 @@ class SpineForgePlanner:
         # Ask user for real-world distance
         dialog = tk.Toplevel(self.root)
         dialog.title("Calibration Distance")
-        dialog.geometry("300x150")
+        dialog.geometry("350x200")
         dialog.resizable(False, False)
         dialog.grab_set()  # Make it modal
         
@@ -1126,8 +1130,28 @@ class SpineForgePlanner:
         y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
         dialog.geometry(f"+{x}+{y}")
         
-        tk.Label(dialog, text="Enter the real distance between\nthe two points (in mm):", 
-                 font=("Arial", 10)).pack(pady=10)
+        # Calculate the angle of the calibration line
+        p1, p2 = self.calibration_points
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        angle = math.degrees(math.atan2(-dy, dx))  # Negative dy for screen coordinates
+        
+        # Normalize angle to 0-180 range (we don't care about direction)
+        angle = abs(angle)
+        if angle > 90:
+            angle = 180 - angle
+        
+        # Determine if it's roughly horizontal or vertical
+        angle_description = ""
+        if angle < 5:
+            angle_description = " (horizontal)"
+        elif angle > 85:
+            angle_description = " (vertical)"
+        elif 43 < angle < 47:
+            angle_description = " (45° diagonal)"
+        
+        tk.Label(dialog, text=f"Enter the real distance between\nthe two points (in mm):\n\nLine angle: {angle:.1f}°{angle_description}", 
+             font=("Arial", 10)).pack(pady=10)
         
         distance_var = tk.StringVar()
         entry = tk.Entry(dialog, textvariable=distance_var, font=("Arial", 12), width=15)
@@ -1151,8 +1175,13 @@ class SpineForgePlanner:
                 self.pixel_spacing = [mm_per_pixel, mm_per_pixel]
                 self.is_calibrated = True
                 
+                self.calibration_angle = angle
+                
                 self.calibration_mode = False
-                self.info_label.config(text=f"Calibrated: {mm_per_pixel:.3f} mm/pixel. Place landmarks.")
+                angle_info = f" (calibration line: {angle:.1f}°{angle_description})"
+                self.info_label.config(text=f"Calibrated: {mm_per_pixel:.3f} mm/pixel{angle_info}")
+                
+                self.update_calibration_status()
                 
                 # Update all existing measurements
                 self.update_measurements()
