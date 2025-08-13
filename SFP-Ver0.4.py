@@ -85,6 +85,10 @@ class SpineForgePlanner:
         self.current_screw = None
         self.cages = []
         
+        self.dragging_screw = None
+        self.dragging_screw_part = None  # 'head' or 'tip'
+        self.screw_drag_start = None
+        
         # Rod state
         self.rod_points = []
         self.rod_line = None
@@ -207,46 +211,39 @@ class SpineForgePlanner:
         tk.Label(implant_frame, text="Implant Type:", bg="lightgray").pack(anchor="w", padx=5)
         
         self.implant_type = tk.StringVar(value="screw")
-        tk.Radiobutton(implant_frame, text="Pedicle Screw", variable=self.implant_type, value="screw", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
-        tk.Radiobutton(implant_frame, text="Cage/Spacer", variable=self.implant_type, value="cage", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
+        tk.Radiobutton(implant_frame, text="Pedicle Screw (Custom Placement)", variable=self.implant_type, value="screw", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
+        #tk.Radiobutton(implant_frame, text="Cage/Spacer", variable=self.implant_type, value="cage", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
         
         # Vertebral Level Selection - common for both screws and cages
         tk.Label(implant_frame, text="Vertebral Level:", bg="lightgray").pack(anchor="w", padx=5, pady=(10,0))
         level_frame = tk.Frame(implant_frame, bg="lightgray")
         level_frame.pack(fill="x", padx=5, pady=2)
         
-        self.level_var = tk.StringVar(value="L3")
+        self.level_var = tk.StringVar(value="L4")
         self.level_dropdown = ttk.Combobox(level_frame, textvariable=self.level_var)
         self.level_dropdown['values'] = ('T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5', 'S1')
         self.level_dropdown.pack(side="left", fill="x", expand=True)
         
-        # Frame for screw parameters
-        self.screw_params_frame = tk.Frame(implant_frame, bg="lightgray")
-        self.screw_params_frame.pack(fill="x", padx=5, pady=5)
+        # Instructions for screw placement
+        self.screw_instructions_frame = tk.Frame(implant_frame, bg="lightgray")
+        self.screw_instructions_frame.pack(fill="x", padx=5, pady=5)
         
-        tk.Label(self.screw_params_frame, text="Screw Parameters:", bg="lightgray").pack(anchor="w", pady=(5,0))
+        tk.Label(self.screw_instructions_frame, text="Custom Screw Placement:", bg="lightgray", font=("Arial", 9, "bold")).pack(anchor="w")
+        instructions = (
+            "1. Select vertebral level above\n"
+            "2. Click 'Place Screw' button\n"
+            "3. Click to set entry point (screw head)\n"
+            "4. Click to set trajectory (screw tip)\n"
+            "5. Control+Click to drag screw points for adjustment"
+        )
+        tk.Label(self.screw_instructions_frame, text=instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
         
-        screw_options_frame = tk.Frame(self.screw_params_frame, bg="lightgray")
-        screw_options_frame.pack(fill="x", padx=5, pady=5)
-        
-        tk.Label(screw_options_frame, text="Diameter (mm):", bg="lightgray").grid(row=0, column=0, sticky="w")
-        self.screw_diameter = tk.StringVar(value="6.5")
-        diameter_entry = ttk.Combobox(screw_options_frame, textvariable=self.screw_diameter, width=5)
-        diameter_entry['values'] = ('4.5', '5.0', '5.5', '6.0', '6.5', '7.0', '7.5', '8.0')
-        diameter_entry.grid(row=0, column=1, padx=5, pady=2)
-        
-        tk.Label(screw_options_frame, text="Length (mm):", bg="lightgray").grid(row=1, column=0, sticky="w")
-        self.screw_length = tk.StringVar(value="45")
-        length_entry = ttk.Combobox(screw_options_frame, textvariable=self.screw_length, width=5)
-        length_entry['values'] = ('30', '35', '40', '45', '50', '55', '60')
-        length_entry.grid(row=1, column=1, padx=5, pady=2)
-        
-        self.place_screw_button = tk.Button(self.screw_params_frame, text="Place Screw", command=self.place_screw)
+        self.place_screw_button = tk.Button(self.screw_instructions_frame, text="Place Custom Screw", command=self.place_screw)
         self.place_screw_button.pack(pady=5)
         
         self.cage_points = []
         
-        # Frame for cage parameters
+        # Frame for cage parameters (keep this as is)
         self.cage_params_frame = tk.Frame(implant_frame, bg="lightgray")
         self.cage_params_frame.pack(fill="x", padx=5, pady=5)
         self.cage_params_frame.pack_forget()  # Initially hidden
@@ -555,6 +552,11 @@ class SpineForgePlanner:
         self.canvas.bind("<ButtonPress-3>", self.start_drag_label)
         self.canvas.bind("<ButtonRelease-3>", self.stop_drag_label)
         
+        # Add screw dragging bindings (using Ctrl+click to avoid conflicts)
+        self.canvas.bind("<Control-Button-1>", self.start_drag_screw)
+        self.canvas.bind("<Control-B1-Motion>", self.on_drag_screw)
+        self.canvas.bind("<Control-ButtonRelease-1>", self.stop_drag_screw)
+        
         # Set initial instruction
         self.info_label.config(text="Load a DICOM image to begin")
 
@@ -584,7 +586,7 @@ class SpineForgePlanner:
     def place_cage(self):
         """Begin placing a cage/spacer on the image"""
         self.current_screw = "placing_cage"
-        self.osteotomy_points = []
+        self.cage_points = []
         level = self.level_var.get()
         self.show_status(
             f"Click 4 points to define the cage at {level} level:\n"
@@ -906,7 +908,7 @@ class SpineForgePlanner:
                 level = self.level_var.get()
                 
                 self.cages.append({
-                    "corners": self.osteotomy_points.copy(),
+                    "corners": self.cage_points.copy(),  # <-- FIXED: using cage_points instead
                     "width": width,
                     "length": length,
                     "height": height,
@@ -953,6 +955,7 @@ class SpineForgePlanner:
             # First click for screw head
             if len(self.osteotomy_points) == 0:
                 self.osteotomy_points.append((x, y))
+                self.show_status(f"Click to set screw tip/trajectory", "info", persistent=True)
                 self.display_image()
             else:
                 # Second click for screw tip
@@ -962,7 +965,16 @@ class SpineForgePlanner:
                 # Calculate screw length in mm
                 length = math.sqrt((tip_x - head_x)**2 + (tip_y - head_y)**2) * self.pixel_spacing[0]
                 length = round(length)  # Round to nearest mm
-                diameter = float(self.screw_diameter.get())
+                
+                # Calculate diameter based on length (rough estimation)
+                if length < 35:
+                    diameter = 5.5
+                elif length < 45:
+                    diameter = 6.0
+                elif length < 55:
+                    diameter = 6.5
+                else:
+                    diameter = 7.0
                 
                 self.screws.append({
                     "head": (head_x, head_y),
@@ -979,10 +991,97 @@ class SpineForgePlanner:
                 
                 self.show_status(
                     f"Screw placed at {self.level_var.get()} - Ø{diameter}mm x {length}mm", "success")
-
+        
                 self.display_image()
-                
                 self.update_implant_summary()
+                
+    def start_drag_screw(self, event):
+        """Check if we're clicking on a screw to drag it"""
+        if self.image is None or self.current_screw == "placing":
+            return
+        
+        # Convert click position to image coordinates
+        x = (event.x - self.offset[0]) / self.zoom
+        y = (event.y - self.offset[1]) / self.zoom
+        
+        # Check if we're near any screw head or tip
+        threshold = 10 / self.zoom  # 10 pixels threshold, adjusted for zoom
+        
+        for i, screw in enumerate(self.screws):
+            head_x, head_y = screw["head"]
+            tip_x, tip_y = screw["tip"]
+            
+            # Check if near head
+            if math.sqrt((x - head_x)**2 + (y - head_y)**2) < threshold:
+                self.dragging_screw = i
+                self.dragging_screw_part = "head"
+                self.screw_drag_start = (event.x, event.y)
+                self.canvas.config(cursor="fleur")
+                return
+            
+            # Check if near tip
+            if math.sqrt((x - tip_x)**2 + (y - tip_y)**2) < threshold:
+                self.dragging_screw = i
+                self.dragging_screw_part = "tip"
+                self.screw_drag_start = (event.x, event.y)
+                self.canvas.config(cursor="fleur")
+                return
+    
+    def on_drag_screw(self, event):
+        """Drag a screw head or tip to new position"""
+        if self.dragging_screw is None or self.screw_drag_start is None:
+            return
+        
+        # Calculate movement in image coordinates
+        dx = (event.x - self.screw_drag_start[0]) / self.zoom
+        dy = (event.y - self.screw_drag_start[1]) / self.zoom
+        
+        # Update screw position
+        screw = self.screws[self.dragging_screw]
+        
+        if self.dragging_screw_part == "head":
+            old_x, old_y = screw["head"]
+            screw["head"] = (old_x + dx, old_y + dy)
+        else:  # tip
+            old_x, old_y = screw["tip"]
+            screw["tip"] = (old_x + dx, old_y + dy)
+        
+        # Recalculate length
+        head_x, head_y = screw["head"]
+        tip_x, tip_y = screw["tip"]
+        length = math.sqrt((tip_x - head_x)**2 + (tip_y - head_y)**2) * self.pixel_spacing[0]
+        screw["length"] = round(length)
+        
+        # Update diameter based on new length
+        if length < 35:
+            screw["diameter"] = 5.5
+        elif length < 45:
+            screw["diameter"] = 6.0
+        elif length < 55:
+            screw["diameter"] = 6.5
+        else:
+            screw["diameter"] = 7.0
+        
+        # Update drag start position
+        self.screw_drag_start = (event.x, event.y)
+        
+        # Redraw
+        self.display_image()
+        self.update_implant_summary()
+    
+    def stop_drag_screw(self, event):
+        """Stop dragging a screw"""
+        if self.dragging_screw is not None:
+            screw = self.screws[self.dragging_screw]
+            self.show_status(
+                f"Screw adjusted: {screw['level']} - Ø{screw['diameter']}mm x {screw['length']}mm", 
+                "info"
+            )
+        
+        self.dragging_screw = None
+        self.dragging_screw_part = None
+        self.screw_drag_start = None
+        self.canvas.config(cursor="cross")
                 
     def setup_status_area(self):
         """Set up the status notification area in the UI"""
@@ -2304,7 +2403,7 @@ class SpineForgePlanner:
             return pt[0] * self.zoom + self.offset[0], pt[1] * self.zoom + self.offset[1]
             
         # Draw screws
-        for screw in self.screws:
+        for i, screw in enumerate(self.screws):
             head_x, head_y = screw["head"]
             tip_x, tip_y = screw["tip"]
             
@@ -2315,15 +2414,21 @@ class SpineForgePlanner:
             # Draw the screw shaft
             self.canvas.create_line(sx1, sy1, sx2, sy2, fill='yellow', width=3)
             
-            # Draw the screw head (larger circle)
-            self.canvas.create_oval(sx1-5, sy1-5, sx1+5, sy1+5, fill='gold', outline='black')
+            # Draw the screw head (larger circle) - make it interactive
+            head_oval = self.canvas.create_oval(sx1-6, sy1-6, sx1+6, sy1+6, 
+                                              fill='gold', outline='darkgoldenrod', width=2)
+            
+            # Draw the screw tip (smaller circle) - make it interactive
+            tip_oval = self.canvas.create_oval(sx2-4, sy2-4, sx2+4, sy2+4, 
+                                             fill='yellow', outline='orange', width=2)
             
             # Add text with screw info
             level = screw.get("level", "")
             diameter = screw.get("diameter", "")
             length = int(screw.get("length", 0))
-            self.canvas.create_text(sx1+5, sy1-5, text=f"{level} Ø{diameter}x{length}mm", fill='white', anchor="sw")
-
+            self.canvas.create_text(sx1+5, sy1-5, text=f"{level} Ø{diameter}x{length}mm", 
+                                   fill='white', anchor="sw", font=('Arial', 9, 'bold'))
+        
         # Draw cages
         for cage in self.cages:
             corners = cage["corners"]
@@ -2537,9 +2642,9 @@ class SpineForgePlanner:
         self.osteotomy_points = []
         level = self.level_var.get()
         self.show_status(
-            f"Click to set the screw head/entry point at {level}, then click to set the trajectory/tip.",
+            f"Click to set the screw entry point at {level}, then click for the trajectory tip.",
             "info",
-            persistent=True  # Keep instruction visible throughout the process
+            persistent=True
         )
         
     def generate_rod_model(self):
