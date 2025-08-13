@@ -1521,27 +1521,26 @@ class SpineForgePlanner:
                 tags=("label:T1Slope",)
             )
         
-        # Draw Lumbar Lordosis (L1-L5)
-        if all(k in lm for k in ["L1_ant", "L1_post", "L5_ant", "L5_post"]):
+        # Draw Lumbar Lordosis (L1-S1)
+        if all(k in lm for k in ["L1_ant", "L1_post", "S1_ant", "S1_post"]):
             l1a_x, l1a_y = scaled(lm["L1_ant"])
             l1p_x, l1p_y = scaled(lm["L1_post"])
-            l5a_x, l5a_y = scaled(lm["L5_ant"])
-            l5p_x, l5p_y = scaled(lm["L5_post"])
+            s1a_x, s1a_y = scaled(lm["S1_ant"])
+            s1p_x, s1p_y = scaled(lm["S1_post"])
             
             # Draw L1 endplate
             self.canvas.create_line(l1a_x, l1a_y, l1p_x, l1p_y, fill=self.colors["Lumbar"], width=2)
-            # Draw L5 endplate
-            self.canvas.create_line(l5a_x, l5a_y, l5p_x, l5p_y, fill=self.colors["Lumbar"], width=2)
-            # Connect endplates
-            self.canvas.create_line(l1a_x, l1a_y, l5a_x, l5a_y, fill=self.colors["Lumbar"], width=1, dash=(5, 3))
-            self.canvas.create_line(l1p_x, l1p_y, l5p_x, l5p_y, fill=self.colors["Lumbar"], width=1, dash=(5, 3))
+            # Draw S1 endplate (already drawn in sacral slope, but we can reference it)
+            # Connect endplates visually
+            self.canvas.create_line(l1a_x, l1a_y, s1a_x, s1a_y, fill=self.colors["Lumbar"], width=1, dash=(5, 3))
+            self.canvas.create_line(l1p_x, l1p_y, s1p_x, s1p_y, fill=self.colors["Lumbar"], width=1, dash=(5, 3))
             
-            ll = self.calculate_acute_angle_between_lines(
-                lm["L1_ant"], lm["L1_post"], lm["L5_ant"], lm["L5_post"]
-            )
+            l1_angle = self.calculate_angle(lm["L1_ant"], lm["L1_post"])
+            s1_angle = self.calculate_angle(lm["S1_ant"], lm["S1_post"])
+            ll = abs(l1_angle - s1_angle)
             
-            # Store L1-L5 midpoint as anchor
-            ll_anchor = ((l1a_x + l5a_x)/2 - 25, (l1a_y + l5a_y)/2)
+            # Store L1-S1 midpoint as anchor
+            ll_anchor = ((l1a_x + s1a_x)/2 - 25, (l1a_y + s1a_y)/2)
             store_anchor_point("LumbarLordosis", ll_anchor)
             
             # Position Lumbar Lordosis label
@@ -2438,11 +2437,10 @@ class SpineForgePlanner:
         else:
             update("T1 Slope", "--")
         
-        if all(k in lm for k in ["L1_ant", "L1_post", "L5_ant", "L5_post"]):
-            lumbar_lordosis = self.calculate_acute_angle_between_lines(
-                lm["L1_ant"], lm["L1_post"], lm["L5_ant"], lm["L5_post"]
-            )
-            update("Lumbar Lordosis", f"{lumbar_lordosis:.2f}°", baseline_values.get("Lumbar Lordosis") if estimated else None)
+        if all(k in lm for k in ["L1_ant", "L1_post", "S1_ant", "S1_post"]):
+            l1 = self.calculate_angle(lm["L1_ant"], lm["L1_post"])
+            s1 = self.calculate_angle(lm["S1_ant"], lm["S1_post"])
+            update("Lumbar Lordosis", f"{abs(l1 - s1):.2f}°")
         else:
             update("Lumbar Lordosis", "--")
             
