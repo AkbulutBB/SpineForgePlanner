@@ -186,7 +186,6 @@ class SpineForgePlanner:
             ("C7 Ant", "C7_ant"), ("C7 Post", "C7_post"),
             ("T1 Ant", "T1_ant"), ("T1 Post", "T1_post"),
             ("L1 Ant", "L1_ant"), ("L1 Post", "L1_post"),
-            ("L5 Ant", "L5_ant"), ("L5 Post", "L5_post"),
             ("S1 Ant", "S1_ant"), ("S1 Post", "S1_post"),
             ("Left Femoral Head Edge 1", "LFH_edge1"), ("Left Femoral Head Edge 2", "LFH_edge2"),
             ("Right Femoral Head Edge 1", "RFH_edge1"), ("Right Femoral Head Edge 2", "RFH_edge2")
@@ -1538,6 +1537,9 @@ class SpineForgePlanner:
             l1_angle = self.calculate_angle(lm["L1_ant"], lm["L1_post"])
             s1_angle = self.calculate_angle(lm["S1_ant"], lm["S1_post"])
             ll = abs(l1_angle - s1_angle)
+            # Ensure we get the acute angle
+            if ll > 180:
+                ll = 360 - ll
             
             # Store L1-S1 midpoint as anchor
             ll_anchor = ((l1a_x + s1a_x)/2 - 25, (l1a_y + s1a_y)/2)
@@ -2440,7 +2442,11 @@ class SpineForgePlanner:
         if all(k in lm for k in ["L1_ant", "L1_post", "S1_ant", "S1_post"]):
             l1 = self.calculate_angle(lm["L1_ant"], lm["L1_post"])
             s1 = self.calculate_angle(lm["S1_ant"], lm["S1_post"])
-            update("Lumbar Lordosis", f"{abs(l1 - s1):.2f}°")
+            ll = abs(l1 - s1)
+            # Ensure we get the acute angle
+            if ll > 180:
+                ll = 360 - ll
+            update("Lumbar Lordosis", f"{ll:.2f}°")
         else:
             update("Lumbar Lordosis", "--")
             
