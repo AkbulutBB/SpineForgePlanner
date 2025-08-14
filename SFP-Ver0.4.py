@@ -240,7 +240,10 @@ class SpineForgePlanner:
         tk.Label(params_frame, text="Level:", bg="lightgray").grid(row=0, column=0, sticky="w", padx=5)
         self.level_var = tk.StringVar(value="L4")
         self.level_dropdown = ttk.Combobox(params_frame, textvariable=self.level_var, width=8)
-        self.level_dropdown['values'] = ('T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5', 'S1')
+        self.level_dropdown['values'] = ('C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7',
+                                         'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12',
+                                         'L1', 'L2', 'L3', 'L4', 'L5', 
+                                         'S1', 'S2', 'Iliac')
         self.level_dropdown.grid(row=0, column=1, padx=5, pady=2)
         
         # Screw Diameter
@@ -355,7 +358,9 @@ class SpineForgePlanner:
         
         self.osteotomy_level_var = tk.StringVar(value="L3")
         self.osteotomy_level_dropdown = ttk.Combobox(osteotomy_level_frame, textvariable=self.osteotomy_level_var)
-        self.osteotomy_level_dropdown['values'] = ('T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5', 'S1')
+        self.osteotomy_level_dropdown['values'] = ('C3', 'C4', 'C5', 'C6', 'C7',
+                                                   'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12',
+                                                   'L1', 'L2', 'L3', 'L4', 'L5', 'S1', 'S2')
         self.osteotomy_level_dropdown.pack(side="left", fill="x", expand=True)
         
         # Buttons
