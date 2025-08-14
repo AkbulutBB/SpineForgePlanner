@@ -214,15 +214,23 @@ class SpineForgePlanner:
         tk.Radiobutton(implant_frame, text="Pedicle Screw (Custom Placement)", variable=self.implant_type, value="screw", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
         #tk.Radiobutton(implant_frame, text="Cage/Spacer", variable=self.implant_type, value="cage", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
         
-        # Vertebral Level Selection - common for both screws and cages
-        tk.Label(implant_frame, text="Vertebral Level:", bg="lightgray").pack(anchor="w", padx=5, pady=(10,0))
-        level_frame = tk.Frame(implant_frame, bg="lightgray")
-        level_frame.pack(fill="x", padx=5, pady=2)
+        # Screw parameters selection
+        params_frame = tk.Frame(implant_frame, bg="lightgray")
+        params_frame.pack(fill="x", padx=5, pady=(10,0))
         
+        # Vertebral Level
+        tk.Label(params_frame, text="Level:", bg="lightgray").grid(row=0, column=0, sticky="w", padx=5)
         self.level_var = tk.StringVar(value="L4")
-        self.level_dropdown = ttk.Combobox(level_frame, textvariable=self.level_var)
+        self.level_dropdown = ttk.Combobox(params_frame, textvariable=self.level_var, width=8)
         self.level_dropdown['values'] = ('T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5', 'S1')
-        self.level_dropdown.pack(side="left", fill="x", expand=True)
+        self.level_dropdown.grid(row=0, column=1, padx=5, pady=2)
+        
+        # Screw Diameter
+        tk.Label(params_frame, text="Diameter (mm):", bg="lightgray").grid(row=0, column=2, sticky="w", padx=5)
+        self.screw_diameter_var = tk.StringVar(value="6.0")
+        self.screw_diameter_dropdown = ttk.Combobox(params_frame, textvariable=self.screw_diameter_var, width=8)
+        self.screw_diameter_dropdown['values'] = ('4.5', '5.0', '5.5', '6.0', '6.5', '7.0', '7.5', '8.0')
+        self.screw_diameter_dropdown.grid(row=0, column=3, padx=5, pady=2)
         
         # Instructions for screw placement
         self.screw_instructions_frame = tk.Frame(implant_frame, bg="lightgray")
@@ -966,15 +974,8 @@ class SpineForgePlanner:
                 length = math.sqrt((tip_x - head_x)**2 + (tip_y - head_y)**2) * self.pixel_spacing[0]
                 length = round(length)  # Round to nearest mm
                 
-                # Calculate diameter based on length (rough estimation)
-                if length < 35:
-                    diameter = 5.5
-                elif length < 45:
-                    diameter = 6.0
-                elif length < 55:
-                    diameter = 6.5
-                else:
-                    diameter = 7.0
+                # Use manually selected diameter
+                diameter = float(self.screw_diameter_var.get())
                 
                 self.screws.append({
                     "head": (head_x, head_y),
@@ -1046,21 +1047,12 @@ class SpineForgePlanner:
             old_x, old_y = screw["tip"]
             screw["tip"] = (old_x + dx, old_y + dy)
         
-        # Recalculate length
+        # Recalculate length only (keep original diameter)
         head_x, head_y = screw["head"]
         tip_x, tip_y = screw["tip"]
         length = math.sqrt((tip_x - head_x)**2 + (tip_y - head_y)**2) * self.pixel_spacing[0]
         screw["length"] = round(length)
-        
-        # Update diameter based on new length
-        if length < 35:
-            screw["diameter"] = 5.5
-        elif length < 45:
-            screw["diameter"] = 6.0
-        elif length < 55:
-            screw["diameter"] = 6.5
-        else:
-            screw["diameter"] = 7.0
+        # Note: Diameter remains unchanged during dragging
         
         # Update drag start position
         self.screw_drag_start = (event.x, event.y)
