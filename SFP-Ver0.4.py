@@ -128,14 +128,32 @@ class SpineForgePlanner:
         self.copy_button = tk.Button(file_frame, text="Copy Results", command=self.copy_to_clipboard)
         self.copy_button.pack(side="left", padx=2)
 
-        # Add contrast control
-        contrast_frame = tk.Frame(self.sidebar, bg="lightgray")
-        contrast_frame.pack(pady=5, fill="x")
-        tk.Label(contrast_frame, text="Image Contrast:", bg="lightgray").pack(side="left", padx=5)
-        self.contrast_slider = tk.Scale(contrast_frame, from_=0.5, to=3.0, resolution=0.1, 
-                                       orient="horizontal", command=self.update_contrast)
+        # Image enhancement controls (brightness and contrast)
+        enhancement_frame = tk.Frame(self.sidebar, bg="lightgray")
+        enhancement_frame.pack(pady=5, fill="x")
+        
+        # Brightness control
+        brightness_subframe = tk.Frame(enhancement_frame, bg="lightgray")
+        brightness_subframe.pack(fill="x", pady=2)
+        tk.Label(brightness_subframe, text="Brightness:", bg="lightgray").pack(side="left", padx=5)
+        self.brightness_slider = tk.Scale(brightness_subframe, from_=0.3, to=2.5, resolution=0.1, 
+                                         orient="horizontal", command=self.update_image_enhancement)
+        self.brightness_slider.set(1.0)
+        self.brightness_slider.pack(side="left", fill="x", expand=True, padx=5)
+        
+        # Contrast control  
+        contrast_subframe = tk.Frame(enhancement_frame, bg="lightgray")
+        contrast_subframe.pack(fill="x", pady=2)
+        tk.Label(contrast_subframe, text="Contrast:   ", bg="lightgray").pack(side="left", padx=5)
+        self.contrast_slider = tk.Scale(contrast_subframe, from_=0.3, to=3.0, resolution=0.1, 
+                                       orient="horizontal", command=self.update_image_enhancement)
         self.contrast_slider.set(1.0)
         self.contrast_slider.pack(side="left", fill="x", expand=True, padx=5)
+        
+        # Reset button for image enhancements
+        reset_enhancement_btn = tk.Button(enhancement_frame, text="Reset", 
+                                         command=self.reset_image_enhancement, bg="lightcoral")
+        reset_enhancement_btn.pack(pady=2)
         
         # Add toggle for draggable labels
         toggle_frame = tk.Frame(self.sidebar, bg="lightgray")
@@ -796,12 +814,38 @@ class SpineForgePlanner:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load image file: {str(e)}")
     
-    def update_contrast(self, val):
+    def update_image_enhancement(self, val=None):
+        """Update both brightness and contrast of the image"""
         if self.original_image is None:
             return
-        enhancer = ImageEnhance.Contrast(self.original_image)
-        self.image = enhancer.enhance(float(val))
+        
+        # Get current values
+        brightness_val = self.brightness_slider.get()
+        contrast_val = self.contrast_slider.get()
+        
+        # Apply brightness first, then contrast
+        brightness_enhancer = ImageEnhance.Brightness(self.original_image)
+        temp_image = brightness_enhancer.enhance(brightness_val)
+        
+        contrast_enhancer = ImageEnhance.Contrast(temp_image)
+        self.image = contrast_enhancer.enhance(contrast_val)
+        
         self.display_image()
+    
+    def reset_image_enhancement(self):
+        """Reset brightness and contrast to default values"""
+        if self.original_image is None:
+            return
+        
+        # Reset sliders to default values
+        self.brightness_slider.set(1.0)
+        self.contrast_slider.set(1.0)
+        
+        # Reset image to original
+        self.image = self.original_image.copy()
+        self.display_image()
+        
+        self.show_status("Image enhancement reset to defaults", "info")
         
     def copy_to_clipboard(self):
         try:
