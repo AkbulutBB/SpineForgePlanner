@@ -85,6 +85,12 @@ class SpineForgePlanner:
         self.current_screw = None
         self.cages = []
         
+        # Add these to your existing state variables
+        self.current_cage_type = None  # 'interbody_draw', 'interbody_template', etc.
+        self.dragging_cage = None
+        self.cage_drag_start = None
+        self.corpectomy_cages = []  # Separate list for corpectomy cages
+        
         self.dragging_screw = None
         self.dragging_screw_part = None  # 'head' or 'tip'
         self.screw_drag_start = None
@@ -191,6 +197,27 @@ class SpineForgePlanner:
         # Implant Tab
         self.implant_tab = tk.Frame(self.tab_control, bg="lightgray")
         self.tab_control.add(self.implant_tab, text="Implants")
+        
+        # Create sub-tabs for different implant types
+        self.implant_notebook = ttk.Notebook(self.implant_tab)
+        self.implant_notebook.pack(fill="both", expand=True, pady=5)
+        
+        # Screws sub-tab
+        self.screw_tab = tk.Frame(self.implant_notebook, bg="lightgray")
+        self.implant_notebook.add(self.screw_tab, text="Pedicle Screws")
+        
+        # Interbody Cage sub-tab
+        self.interbody_tab = tk.Frame(self.implant_notebook, bg="lightgray")
+        self.implant_notebook.add(self.interbody_tab, text="Interbody Cage")
+        
+        # Corpectomy Cage sub-tab
+        self.corpectomy_tab = tk.Frame(self.implant_notebook, bg="lightgray")
+        self.implant_notebook.add(self.corpectomy_tab, text="Corpectomy Cage")
+        
+        # Setup each sub-tab
+        self.setup_screw_tab()
+        self.setup_interbody_tab()
+        self.setup_corpectomy_tab()
         
         # Rod Export Tab
         self.rod_tab = tk.Frame(self.tab_control, bg="lightgray")
@@ -590,6 +617,241 @@ class SpineForgePlanner:
         
         # Set initial instruction
         self.info_label.config(text="Load a DICOM image to begin")
+
+    
+    def setup_screw_tab(self):
+        """Setup the existing screw placement interface"""
+        screw_frame = tk.Frame(self.screw_tab, bg="lightgray")
+        screw_frame.pack(pady=5, fill="x")
+        
+        # Screw parameters selection (keep existing functionality)
+        params_frame = tk.Frame(screw_frame, bg="lightgray")
+        params_frame.pack(fill="x", padx=5, pady=(10,0))
+        
+        # Vertebral Level
+        tk.Label(params_frame, text="Level:", bg="lightgray").grid(row=0, column=0, sticky="w", padx=5)
+        self.level_var = tk.StringVar(value="L4")
+        self.level_dropdown = ttk.Combobox(params_frame, textvariable=self.level_var, width=8)
+        self.level_dropdown['values'] = ('C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7',
+                                         'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12',
+                                         'L1', 'L2', 'L3', 'L4', 'L5', 
+                                         'S1', 'S2', 'Iliac')
+        self.level_dropdown.grid(row=0, column=1, padx=5, pady=2)
+        
+        # Screw Diameter
+        tk.Label(params_frame, text="Diameter (mm):", bg="lightgray").grid(row=0, column=2, sticky="w", padx=5)
+        self.screw_diameter_var = tk.StringVar(value="6.0")
+        self.screw_diameter_dropdown = ttk.Combobox(params_frame, textvariable=self.screw_diameter_var, width=8)
+        self.screw_diameter_dropdown['values'] = ('4.5', '5.0', '5.5', '6.0', '6.5', '7.0', '7.5', '8.0')
+        self.screw_diameter_dropdown.grid(row=0, column=3, padx=5, pady=2)
+        
+        # Instructions
+        instructions_frame = tk.Frame(screw_frame, bg="lightgray")
+        instructions_frame.pack(fill="x", padx=5, pady=5)
+        
+        tk.Label(instructions_frame, text="Custom Screw Placement:", bg="lightgray", font=("Arial", 9, "bold")).pack(anchor="w")
+        instructions = (
+            "1. Select vertebral level above\n"
+            "2. Click 'Place Screw' button\n"
+            "3. Click to set entry point (screw head)\n"
+            "4. Click to set trajectory (screw tip)\n"
+            "5. Control+Click to drag screw points for adjustment"
+        )
+        tk.Label(instructions_frame, text=instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
+        
+        self.place_screw_button = tk.Button(instructions_frame, text="Place Custom Screw", command=self.place_screw)
+        self.place_screw_button.pack(pady=5)
+    
+    def setup_interbody_tab(self):
+        """Setup interbody cage placement interface"""
+        interbody_frame = tk.Frame(self.interbody_tab, bg="lightgray")
+        interbody_frame.pack(pady=5, fill="x")
+        
+        tk.Label(interbody_frame, text="Interbody Cage Options:", bg="lightgray", font=("Arial", 10, "bold")).pack(anchor="w", padx=5)
+        
+        # Placement method selection
+        method_frame = tk.Frame(interbody_frame, bg="lightgray")
+        method_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.interbody_method = tk.StringVar(value="draw")
+        tk.Radiobutton(method_frame, text="Draw Custom Shape", variable=self.interbody_method, 
+                       value="draw", bg="lightgray", command=self.update_interbody_options).pack(anchor="w")
+        tk.Radiobutton(method_frame, text="Predefined Template (Drag & Drop)", variable=self.interbody_method, 
+                       value="template", bg="lightgray", command=self.update_interbody_options).pack(anchor="w")
+        
+        # Parameters frame
+        params_frame = tk.Frame(interbody_frame, bg="lightgray")
+        params_frame.pack(fill="x", padx=5, pady=5)
+        
+        # Level selection
+        tk.Label(params_frame, text="Level:", bg="lightgray").grid(row=0, column=0, sticky="w")
+        self.interbody_level_var = tk.StringVar(value="L4-L5")
+        level_combo = ttk.Combobox(params_frame, textvariable=self.interbody_level_var, width=10)
+        level_combo['values'] = ('L1-L2', 'L2-L3', 'L3-L4', 'L4-L5', 'L5-S1')
+        level_combo.grid(row=0, column=1, padx=5, pady=2)
+        
+        # Cage dimensions with validation
+        tk.Label(params_frame, text="Width (mm):", bg="lightgray").grid(row=1, column=0, sticky="w")
+        self.interbody_width_var = tk.StringVar(value="12")
+        self.interbody_width_entry = tk.Entry(params_frame, textvariable=self.interbody_width_var, width=8)
+        self.interbody_width_entry.grid(row=1, column=1, padx=5, pady=2)
+        self.interbody_width_entry.bind('<FocusOut>', lambda e: self.validate_cage_input(self.interbody_width_var, 8, 18, 12))
+        
+        tk.Label(params_frame, text="Length (mm):", bg="lightgray").grid(row=2, column=0, sticky="w")
+        self.interbody_length_var = tk.StringVar(value="28")
+        self.interbody_length_entry = tk.Entry(params_frame, textvariable=self.interbody_length_var, width=8)
+        self.interbody_length_entry.grid(row=2, column=1, padx=5, pady=2)
+        self.interbody_length_entry.bind('<FocusOut>', lambda e: self.validate_cage_input(self.interbody_length_var, 20, 35, 28))
+        
+        tk.Label(params_frame, text="Height (mm):", bg="lightgray").grid(row=3, column=0, sticky="w")
+        self.interbody_height_var = tk.StringVar(value="10")
+        self.interbody_height_entry = tk.Entry(params_frame, textvariable=self.interbody_height_var, width=8)
+        self.interbody_height_entry.grid(row=3, column=1, padx=5, pady=2)
+        self.interbody_height_entry.bind('<FocusOut>', lambda e: self.validate_cage_input(self.interbody_height_var, 6, 16, 10))
+        
+        tk.Label(params_frame, text="Lordosis (°):", bg="lightgray").grid(row=4, column=0, sticky="w")
+        self.interbody_lordosis_var = tk.StringVar(value="6")
+        self.interbody_lordosis_entry = tk.Entry(params_frame, textvariable=self.interbody_lordosis_var, width=8)
+        self.interbody_lordosis_entry.grid(row=4, column=1, padx=5, pady=2)
+        self.interbody_lordosis_entry.bind('<FocusOut>', lambda e: self.validate_cage_input(self.interbody_lordosis_var, 0, 20, 6))
+        
+        # Instructions frames (will show/hide based on method)
+        self.interbody_draw_frame = tk.Frame(interbody_frame, bg="lightgray")
+        self.interbody_draw_frame.pack(fill="x", padx=5, pady=5)
+        
+        tk.Label(self.interbody_draw_frame, text="Draw Instructions:", bg="lightgray", font=("Arial", 9, "bold")).pack(anchor="w")
+        draw_instructions = (
+            "1. Click 'Place Interbody Cage' button\n"
+            "2. Click 4 corners to define the cage shape:\n"
+            "   - Left inferior endplate corner\n"
+            "   - Right inferior endplate corner\n"
+            "   - Left superior endplate corner\n"  
+            "   - Right superior endplate corner"
+        )
+        tk.Label(self.interbody_draw_frame, text=draw_instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
+        
+        self.interbody_template_frame = tk.Frame(interbody_frame, bg="lightgray")
+        # Initially hidden
+        
+        tk.Label(self.interbody_template_frame, text="Template Instructions:", bg="lightgray", font=("Arial", 9, "bold")).pack(anchor="w")
+        template_instructions = (
+            "1. Click 'Place Template' button\n"
+            "2. A predefined cage will appear\n"
+            "3. Click and drag to position\n"
+            "4. Use handles to resize if needed"
+        )
+        tk.Label(self.interbody_template_frame, text=template_instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
+        
+        # Place button
+        self.place_interbody_button = tk.Button(interbody_frame, text="Place Interbody Cage", 
+                                               command=self.place_interbody_cage)
+        self.place_interbody_button.pack(pady=5)
+    
+    def setup_corpectomy_tab(self):
+        """Setup corpectomy cage placement interface"""
+        corpectomy_frame = tk.Frame(self.corpectomy_tab, bg="lightgray")
+        corpectomy_frame.pack(pady=5, fill="x")
+        
+        tk.Label(corpectomy_frame, text="Corpectomy Cage Options:", bg="lightgray", font=("Arial", 10, "bold")).pack(anchor="w", padx=5)
+        
+        # Placement method selection
+        method_frame = tk.Frame(corpectomy_frame, bg="lightgray")
+        method_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.corpectomy_method = tk.StringVar(value="draw")
+        tk.Radiobutton(method_frame, text="Draw Custom Shape", variable=self.corpectomy_method, 
+                       value="draw", bg="lightgray", command=self.update_corpectomy_options).pack(anchor="w")
+        tk.Radiobutton(method_frame, text="Cylindrical Template (Drag & Drop)", variable=self.corpectomy_method, 
+                       value="template", bg="lightgray", command=self.update_corpectomy_options).pack(anchor="w")
+        
+        # Parameters frame
+        params_frame = tk.Frame(corpectomy_frame, bg="lightgray")
+        params_frame.pack(fill="x", padx=5, pady=5)
+        
+        # Level selection
+        tk.Label(params_frame, text="Vertebra Removed:", bg="lightgray").grid(row=0, column=0, sticky="w")
+        self.corpectomy_level_var = tk.StringVar(value="L3")
+        level_combo = ttk.Combobox(params_frame, textvariable=self.corpectomy_level_var, width=10)
+        level_combo['values'] = ('T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5')
+        level_combo.grid(row=0, column=1, padx=5, pady=2)
+        
+        # Cage dimensions with validation
+        tk.Label(params_frame, text="Diameter (mm):", bg="lightgray").grid(row=1, column=0, sticky="w")
+        self.corpectomy_diameter_var = tk.StringVar(value="22")
+        self.corpectomy_diameter_entry = tk.Entry(params_frame, textvariable=self.corpectomy_diameter_var, width=8)
+        self.corpectomy_diameter_entry.grid(row=1, column=1, padx=5, pady=2)
+        self.corpectomy_diameter_entry.bind('<FocusOut>', lambda e: self.validate_cage_input(self.corpectomy_diameter_var, 16, 30, 22))
+        
+        tk.Label(params_frame, text="Height (mm):", bg="lightgray").grid(row=2, column=0, sticky="w")
+        self.corpectomy_height_var = tk.StringVar(value="50")
+        self.corpectomy_height_entry = tk.Entry(params_frame, textvariable=self.corpectomy_height_var, width=8)
+        self.corpectomy_height_entry.grid(row=2, column=1, padx=5, pady=2)
+        self.corpectomy_height_entry.bind('<FocusOut>', lambda e: self.validate_cage_input(self.corpectomy_height_var, 30, 80, 50))
+        
+        # Instructions
+        instructions_frame = tk.Frame(corpectomy_frame, bg="lightgray")
+        instructions_frame.pack(fill="x", padx=5, pady=5)
+        
+        instructions = (
+            "Corpectomy cage replaces a removed vertebral body.\n"
+            "Draw mode: Click to define cage boundaries\n"
+            "Template mode: Drag pre-sized cage into position"
+        )
+        tk.Label(instructions_frame, text=instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
+        
+        # Place button
+        self.place_corpectomy_button = tk.Button(corpectomy_frame, text="Place Corpectomy Cage", 
+                                                command=self.place_corpectomy_cage)
+        self.place_corpectomy_button.pack(pady=5)
+    
+    def validate_cage_input(self, var, min_val, max_val, default):
+        """Validate numeric input for cage dimensions"""
+        try:
+            value = float(var.get())
+            if value < min_val or value > max_val:
+                self.show_status(f"Value must be between {min_val} and {max_val} mm. Reset to default.", "warning")
+                var.set(str(default))
+        except ValueError:
+            self.show_status(f"Invalid input. Please enter a number between {min_val} and {max_val}.", "error")
+            var.set(str(default))
+    
+    def update_interbody_options(self):
+        """Show/hide relevant options based on interbody placement method"""
+        if self.interbody_method.get() == "draw":
+            self.interbody_draw_frame.pack(fill="x", padx=5, pady=5)
+            self.interbody_template_frame.pack_forget()
+        else:
+            self.interbody_draw_frame.pack_forget()
+            self.interbody_template_frame.pack(fill="x", padx=5, pady=5)
+    
+    def update_corpectomy_options(self):
+        """Show/hide relevant options based on corpectomy placement method"""
+        # Similar implementation if needed
+        pass
+    
+    def place_interbody_cage(self):
+        """Begin placing an interbody cage"""
+        if self.interbody_method.get() == "draw":
+            self.current_cage_type = "interbody_draw"
+            self.cage_points = []
+            level = self.interbody_level_var.get()
+            self.show_status(f"Click 4 points to define interbody cage at {level}", "info", persistent=True)
+        else:
+            # Template placement - create a predefined cage at cursor
+            self.current_cage_type = "interbody_template"
+            self.show_status("Click to place interbody cage template", "info")
+    
+    def place_corpectomy_cage(self):
+        """Begin placing a corpectomy cage"""
+        if self.corpectomy_method.get() == "draw":
+            self.current_cage_type = "corpectomy_draw"
+            self.cage_points = []
+            level = self.corpectomy_level_var.get()
+            self.show_status(f"Click 2 points to define corpectomy cage height at {level}", "info", persistent=True)
+        else:
+            # Template placement
+            self.current_cage_type = "corpectomy_template"
+            self.show_status("Click to place corpectomy cage template", "info")
 
     # Add this method to update calibration status display:
     def update_calibration_status(self):
