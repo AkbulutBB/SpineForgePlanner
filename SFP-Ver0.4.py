@@ -249,93 +249,6 @@ class SpineForgePlanner:
                     tk.Button(row, text=label, width=18, command=lambda n=name: self.set_current_landmark(n)).pack(side="left", padx=2, pady=1)
 
         
-        # Implant options
-        implant_frame = tk.Frame(self.implant_tab, bg="lightgray")
-        implant_frame.pack(pady=5, fill="x")
-        
-        tk.Label(implant_frame, text="Implant Type:", bg="lightgray").pack(anchor="w", padx=5)
-        
-        self.implant_type = tk.StringVar(value="screw")
-        tk.Radiobutton(implant_frame, text="Pedicle Screw (Custom Placement)", variable=self.implant_type, value="screw", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
-        #tk.Radiobutton(implant_frame, text="Cage/Spacer", variable=self.implant_type, value="cage", bg="lightgray", command=self.update_implant_options).pack(anchor="w", padx=20)
-        
-        # Screw parameters selection
-        params_frame = tk.Frame(implant_frame, bg="lightgray")
-        params_frame.pack(fill="x", padx=5, pady=(10,0))
-        
-        # Vertebral Level
-        tk.Label(params_frame, text="Level:", bg="lightgray").grid(row=0, column=0, sticky="w", padx=5)
-        self.level_var = tk.StringVar(value="L4")
-        self.level_dropdown = ttk.Combobox(params_frame, textvariable=self.level_var, width=8)
-        self.level_dropdown['values'] = ('C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7',
-                                         'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12',
-                                         'L1', 'L2', 'L3', 'L4', 'L5', 
-                                         'S1', 'S2', 'Iliac')
-        self.level_dropdown.grid(row=0, column=1, padx=5, pady=2)
-        
-        # Screw Diameter
-        tk.Label(params_frame, text="Diameter (mm):", bg="lightgray").grid(row=0, column=2, sticky="w", padx=5)
-        self.screw_diameter_var = tk.StringVar(value="6.0")
-        self.screw_diameter_dropdown = ttk.Combobox(params_frame, textvariable=self.screw_diameter_var, width=8)
-        self.screw_diameter_dropdown['values'] = ('4.5', '5.0', '5.5', '6.0', '6.5', '7.0', '7.5', '8.0')
-        self.screw_diameter_dropdown.grid(row=0, column=3, padx=5, pady=2)
-        
-        # Instructions for screw placement
-        self.screw_instructions_frame = tk.Frame(implant_frame, bg="lightgray")
-        self.screw_instructions_frame.pack(fill="x", padx=5, pady=5)
-        
-        tk.Label(self.screw_instructions_frame, text="Custom Screw Placement:", bg="lightgray", font=("Arial", 9, "bold")).pack(anchor="w")
-        instructions = (
-            "1. Select vertebral level above\n"
-            "2. Click 'Place Screw' button\n"
-            "3. Click to set entry point (screw head)\n"
-            "4. Click to set trajectory (screw tip)\n"
-            "5. Control+Click to drag screw points for adjustment"
-        )
-        tk.Label(self.screw_instructions_frame, text=instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
-        
-        self.place_screw_button = tk.Button(self.screw_instructions_frame, text="Place Custom Screw", command=self.place_screw)
-        self.place_screw_button.pack(pady=5)
-        
-        self.cage_points = []
-        
-        # Frame for cage parameters (keep this as is)
-        self.cage_params_frame = tk.Frame(implant_frame, bg="lightgray")
-        self.cage_params_frame.pack(fill="x", padx=5, pady=5)
-        self.cage_params_frame.pack_forget()  # Initially hidden
-        
-        tk.Label(self.cage_params_frame, text="Cage Parameters:", bg="lightgray").pack(anchor="w", pady=(5,0))
-        
-        cage_options_frame = tk.Frame(self.cage_params_frame, bg="lightgray")
-        cage_options_frame.pack(fill="x", padx=5, pady=5)
-        
-        tk.Label(cage_options_frame, text="Width (mm):", bg="lightgray").grid(row=0, column=0, sticky="w")
-        self.cage_width = tk.StringVar(value="12")
-        cage_width_entry = ttk.Combobox(cage_options_frame, textvariable=self.cage_width, width=5)
-        cage_width_entry['values'] = ('8', '9', '10', '11', '12', '13', '14')
-        cage_width_entry.grid(row=0, column=1, padx=5, pady=2)
-        
-        tk.Label(cage_options_frame, text="Length (mm):", bg="lightgray").grid(row=1, column=0, sticky="w")
-        self.cage_length = tk.StringVar(value="28")
-        cage_length_entry = ttk.Combobox(cage_options_frame, textvariable=self.cage_length, width=5)
-        cage_length_entry['values'] = ('22', '24', '26', '28', '30', '32')
-        cage_length_entry.grid(row=1, column=1, padx=5, pady=2)
-        
-        tk.Label(cage_options_frame, text="Height (mm):", bg="lightgray").grid(row=2, column=0, sticky="w")
-        self.cage_height = tk.StringVar(value="10")
-        cage_height_entry = ttk.Combobox(cage_options_frame, textvariable=self.cage_height, width=5)
-        cage_height_entry['values'] = ('8', '9', '10', '11', '12', '13', '14')
-        cage_height_entry.grid(row=2, column=1, padx=5, pady=2)
-        
-        tk.Label(cage_options_frame, text="Lordosis (°):", bg="lightgray").grid(row=3, column=0, sticky="w")
-        self.cage_lordosis = tk.StringVar(value="6")
-        cage_lordosis_entry = ttk.Combobox(cage_options_frame, textvariable=self.cage_lordosis, width=5)
-        cage_lordosis_entry['values'] = ('0', '4', '6', '8', '10', '12', '15')
-        cage_lordosis_entry.grid(row=3, column=1, padx=5, pady=2)
-        
-        self.place_cage_button = tk.Button(self.cage_params_frame, text="Place Cage", command=self.place_cage)
-        self.place_cage_button.pack(pady=5)
-        
         # Rod Export Options
         rod_frame = tk.Frame(self.rod_tab, bg="lightgray")
         rod_frame.pack(pady=5, fill="x")
@@ -630,7 +543,9 @@ class SpineForgePlanner:
         
         # Vertebral Level
         tk.Label(params_frame, text="Level:", bg="lightgray").grid(row=0, column=0, sticky="w", padx=5)
-        self.level_var = tk.StringVar(value="L4")
+        # DON'T redefine self.level_var if it already exists
+        if not hasattr(self, 'level_var'):
+            self.level_var = tk.StringVar(value="L4")
         self.level_dropdown = ttk.Combobox(params_frame, textvariable=self.level_var, width=8)
         self.level_dropdown['values'] = ('C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7',
                                          'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12',
@@ -638,9 +553,10 @@ class SpineForgePlanner:
                                          'S1', 'S2', 'Iliac')
         self.level_dropdown.grid(row=0, column=1, padx=5, pady=2)
         
-        # Screw Diameter
+        # Screw Diameter - DON'T redefine if it already exists
         tk.Label(params_frame, text="Diameter (mm):", bg="lightgray").grid(row=0, column=2, sticky="w", padx=5)
-        self.screw_diameter_var = tk.StringVar(value="6.0")
+        if not hasattr(self, 'screw_diameter_var'):
+            self.screw_diameter_var = tk.StringVar(value="6.0")
         self.screw_diameter_dropdown = ttk.Combobox(params_frame, textvariable=self.screw_diameter_var, width=8)
         self.screw_diameter_dropdown['values'] = ('4.5', '5.0', '5.5', '6.0', '6.5', '7.0', '7.5', '8.0')
         self.screw_diameter_dropdown.grid(row=0, column=3, padx=5, pady=2)
@@ -864,31 +780,6 @@ class SpineForgePlanner:
         else:
             self.calib_status.config(text="Not calibrated - measurements in pixels", 
                                     bg="lightcoral", fg="white")
-
-    def update_implant_options(self):
-        """Show/hide appropriate parameter frames based on selected implant type"""
-        implant_type = self.implant_type.get()
-        
-        if implant_type == "screw":
-            self.screw_params_frame.pack(fill="x", padx=5, pady=5)
-            self.cage_params_frame.pack_forget()
-        else:  # cage
-            self.screw_params_frame.pack_forget()
-            self.cage_params_frame.pack(fill="x", padx=5, pady=5)
-
-    def place_cage(self):
-        """Begin placing a cage/spacer on the image"""
-        self.current_screw = "placing_cage"
-        self.cage_points = []
-        level = self.level_var.get()
-        self.show_status(
-            f"Click 4 points to define the cage at {level} level:\n"
-            f"1) Left corner of inferior endplate\n"
-            f"2) Right corner of inferior endplate\n"
-            f"3) Left corner of superior endplate\n"
-            f"4) Right corner of superior endplate",
-            "info"
-        )
 
     def create_outlined_text(self, x, y, text, fill_color, font_size, tags):
         """Create text with white/black outline for better visibility on any background"""
@@ -1267,6 +1158,135 @@ class SpineForgePlanner:
             
             self.display_image()
                 
+            
+        # Handle cage placement
+        elif self.current_cage_type:
+            x = int((event.x - self.offset[0]) / self.zoom)
+            y = int((event.y - self.offset[1]) / self.zoom)
+            
+            if self.current_cage_type == "interbody_draw":
+                self.cage_points.append((x, y))
+                self.display_image()
+                
+                # Update instructions
+                if len(self.cage_points) == 1:
+                    self.show_status("Click right inferior endplate corner", "info", persistent=True)
+                elif len(self.cage_points) == 2:
+                    self.show_status("Click left superior endplate corner", "info", persistent=True)
+                elif len(self.cage_points) == 3:
+                    self.show_status("Click right superior endplate corner", "info", persistent=True)
+                elif len(self.cage_points) == 4:
+                    # Get cage parameters
+                    width = float(self.interbody_width_var.get())
+                    length = float(self.interbody_length_var.get())
+                    height = float(self.interbody_height_var.get())
+                    lordosis = float(self.interbody_lordosis_var.get())
+                    level = self.interbody_level_var.get()
+                    
+                    self.cages.append({
+                        "corners": self.cage_points.copy(),
+                        "width": width,
+                        "length": length,
+                        "height": height,
+                        "lordosis": lordosis,
+                        "level": level,
+                        "type": "interbody"
+                    })
+                    
+                    self.cage_points = []
+                    self.current_cage_type = None
+                    self.end_persistent_instruction()
+                    self.show_status(f"Interbody cage placed at {level}", "success")
+                    self.display_image()
+                    self.update_implant_summary()
+                    
+            elif self.current_cage_type == "interbody_template":
+                # Place a template cage at click position
+                width = float(self.interbody_width_var.get())
+                length = float(self.interbody_length_var.get())
+                height = float(self.interbody_height_var.get())
+                lordosis = float(self.interbody_lordosis_var.get())
+                level = self.interbody_level_var.get()
+                
+                # Create a rectangular template centered at click point
+                half_width = int(width / self.pixel_spacing[0] / 2)
+                half_height = int(height / self.pixel_spacing[1] / 2)
+                
+                corners = [
+                    (x - half_width, y + half_height),  # Bottom left
+                    (x + half_width, y + half_height),  # Bottom right
+                    (x - half_width, y - half_height),  # Top left
+                    (x + half_width, y - half_height),  # Top right
+                ]
+                
+                self.cages.append({
+                    "corners": corners,
+                    "width": width,
+                    "length": length,
+                    "height": height,
+                    "lordosis": lordosis,
+                    "level": level,
+                    "type": "interbody"
+                })
+                
+                self.current_cage_type = None
+                self.show_status(f"Interbody cage template placed at {level}", "success")
+                self.display_image()
+                self.update_implant_summary()
+                
+            elif self.current_cage_type == "corpectomy_draw":
+                self.cage_points.append((x, y))
+                self.display_image()
+                
+                if len(self.cage_points) == 1:
+                    self.show_status("Click to set corpectomy cage bottom", "info", persistent=True)
+                elif len(self.cage_points) == 2:
+                    # Create corpectomy cage
+                    diameter = float(self.corpectomy_diameter_var.get())
+                    height = float(self.corpectomy_height_var.get())
+                    level = self.corpectomy_level_var.get()
+                    
+                    self.corpectomy_cages.append({
+                        "top": self.cage_points[0],
+                        "bottom": self.cage_points[1],
+                        "diameter": diameter,
+                        "height": height,
+                        "level": level,
+                        "type": "corpectomy"
+                    })
+                    
+                    self.cage_points = []
+                    self.current_cage_type = None
+                    self.end_persistent_instruction()
+                    self.show_status(f"Corpectomy cage placed at {level}", "success")
+                    self.display_image()
+                    self.update_implant_summary()
+                    
+            elif self.current_cage_type == "corpectomy_template":
+                # Place a cylindrical template at click position
+                diameter = float(self.corpectomy_diameter_var.get())
+                height = float(self.corpectomy_height_var.get())
+                level = self.corpectomy_level_var.get()
+                
+                # Create cylindrical cage centered at click
+                radius_px = int(diameter / self.pixel_spacing[0] / 2)
+                height_px = int(height / self.pixel_spacing[1])
+                
+                self.corpectomy_cages.append({
+                    "center": (x, y),
+                    "radius": radius_px,
+                    "height": height_px,
+                    "diameter": diameter,
+                    "height_mm": height,
+                    "level": level,
+                    "type": "corpectomy_template"
+                })
+                
+                self.current_cage_type = None
+                self.show_status(f"Corpectomy cage template placed at {level}", "success")
+                self.display_image()
+                self.update_implant_summary()
+            
         elif self.current_screw == "placing":
             x = int((event.x - self.offset[0]) / self.zoom)
             y = int((event.y - self.offset[1]) / self.zoom)
