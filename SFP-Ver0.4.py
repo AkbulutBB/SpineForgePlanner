@@ -528,6 +528,19 @@ class SpineForgePlanner:
         self.canvas.bind("<Control-B1-Motion>", self.on_drag_screw)
         self.canvas.bind("<Control-ButtonRelease-1>", self.stop_drag_screw)
         
+        # Add cage dragging bindings
+        self.canvas.bind("<Alt-Button-1>", self.start_drag_cage)
+        self.canvas.bind("<Alt-B1-Motion>", self.on_drag_cage)
+        self.canvas.bind("<Alt-ButtonRelease-1>", self.stop_drag_cage)
+        
+        # Cage resize bindings (Shift+Click to select and show handles)
+        self.canvas.bind("<Shift-Button-1>", self.select_cage_for_resize)
+        self.canvas.bind("<Button-1>", self.handle_cage_interaction, add="+")
+        self.canvas.bind("<B1-Motion>", self.handle_cage_drag_or_resize, add="+")
+        self.canvas.bind("<ButtonRelease-1>", self.handle_cage_release, add="+")
+        
+        self.canvas.bind("<Motion>", self.on_mouse_motion)
+        
         # Set initial instruction
         self.info_label.config(text="Load a DICOM image to begin")
 
@@ -642,7 +655,9 @@ class SpineForgePlanner:
             "   - Left inferior endplate corner\n"
             "   - Right inferior endplate corner\n"
             "   - Left superior endplate corner\n"  
-            "   - Right superior endplate corner"
+            "   - Right superior endplate corner\n"
+            "3. Alt+Click and drag to reposition\n"
+            "4. Shift+Click to show resize handles"
         )
         tk.Label(self.interbody_draw_frame, text=draw_instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
         
@@ -653,8 +668,9 @@ class SpineForgePlanner:
         template_instructions = (
             "1. Click 'Place Template' button\n"
             "2. A predefined cage will appear\n"
-            "3. Click and drag to position\n"
-            "4. Use handles to resize if needed"
+            "3. Alt+Click and drag to reposition\n"
+            "4. Shift+Click to show resize handles\n"
+            "5. Drag corner handles to resize"
         )
         tk.Label(self.interbody_template_frame, text=template_instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
         
@@ -662,6 +678,20 @@ class SpineForgePlanner:
         self.place_interbody_button = tk.Button(interbody_frame, text="Place Interbody Cage", 
                                                command=self.place_interbody_cage)
         self.place_interbody_button.pack(pady=5)
+    
+    def on_mouse_motion(self, event):
+        """Show tooltips when hovering over interactive elements"""
+        x = (event.x - self.offset[0]) / self.zoom
+        y = (event.y - self.offset[1]) / self.zoom
+        
+        # Check if hovering over a cage
+        for cage in self.cages:
+            if self.point_in_quad(x, y, cage["corners"]):
+                self.status_label.config(text="Alt+drag to move | Shift+click for resize handles")
+                return
+        
+        # Clear status if not hovering over anything special
+        self.status_label.config(text="")
     
     def setup_corpectomy_tab(self):
         """Setup corpectomy cage placement interface"""
@@ -857,6 +887,41 @@ class SpineForgePlanner:
         self.draw_connecting_lines()
         
         self.drag_start = (event.x, event.y)
+    
+    def select_cage_for_resize(self, event):
+        """Select a cage to show resize handles"""
+        x = (event.x - self.offset[0]) / self.zoom
+        y = (event.y - self.offset[1]) / self.zoom
+        
+        # Clear any existing handles
+        self.clear_cage_handles()
+        
+        # Find which cage was clicked
+        for i, cage in enumerate(self.cages):
+            if self.point_in_quad(x, y, cage["corners"]):
+                self.create_cage_handles(i)
+                self.show_status("Drag corner handles to resize cage", "info")
+                return
+    
+    def handle_cage_interaction(self, event):
+        """Unified handler for cage interactions"""
+        # Check if clicking on a handle first
+        item = self.canvas.find_closest(event.x, event.y)
+        if item:
+            tags = self.canvas.gettags(item[0])
+            if "cage_handle" in tags:
+                self.start_resize_cage(event)
+                return
+    
+    def handle_cage_drag_or_resize(self, event):
+        """Handle either resize or other drag operations"""
+        if self.resizing_cage:
+            self.on_resize_cage(event)
+    
+    def handle_cage_release(self, event):
+        """Handle release for cage operations"""
+        if self.resizing_cage:
+            self.stop_resize_cage(event)
     
     def draw_connecting_lines(self):
         """Draw dashed lines connecting measurement labels to their anchor points"""
@@ -1176,19 +1241,36 @@ class SpineForgePlanner:
                 elif len(self.cage_points) == 3:
                     self.show_status("Click right superior endplate corner", "info", persistent=True)
                 elif len(self.cage_points) == 4:
-                    # Get cage parameters
-                    width = float(self.interbody_width_var.get())
+                    # Calculate actual cage dimensions from drawn points
+                    points = self.cage_points
+                    
+                    # Calculate width (average of top and bottom widths)
+                    bottom_width = math.sqrt((points[1][0] - points[0][0])**2 + 
+                                             (points[1][1] - points[0][1])**2) * self.pixel_spacing[0]
+                    top_width = math.sqrt((points[3][0] - points[2][0])**2 + 
+                                          (points[3][1] - points[2][1])**2) * self.pixel_spacing[0]
+                    width = (bottom_width + top_width) / 2
+                    
+                    # Calculate height (average of left and right heights)
+                    left_height = math.sqrt((points[2][0] - points[0][0])**2 + 
+                                            (points[2][1] - points[0][1])**2) * self.pixel_spacing[1]
+                    right_height = math.sqrt((points[3][0] - points[1][0])**2 + 
+                                             (points[3][1] - points[1][1])**2) * self.pixel_spacing[1]
+                    height = (left_height + right_height) / 2
+                    
+                    # Calculate lordosis angle from the difference in heights
+                    lordosis = math.degrees(math.atan2(abs(top_width - bottom_width), height))
+                    
+                    # Use calculated values, but keep user's length specification
                     length = float(self.interbody_length_var.get())
-                    height = float(self.interbody_height_var.get())
-                    lordosis = float(self.interbody_lordosis_var.get())
                     level = self.interbody_level_var.get()
                     
                     self.cages.append({
                         "corners": self.cage_points.copy(),
-                        "width": width,
-                        "length": length,
-                        "height": height,
-                        "lordosis": lordosis,
+                        "width": round(width, 1),
+                        "length": length,  # Keep user specified
+                        "height": round(height, 1),
+                        "lordosis": round(lordosis, 1),
                         "level": level,
                         "type": "interbody"
                     })
@@ -1196,7 +1278,7 @@ class SpineForgePlanner:
                     self.cage_points = []
                     self.current_cage_type = None
                     self.end_persistent_instruction()
-                    self.show_status(f"Interbody cage placed at {level}", "success")
+                    self.show_status(f"Interbody cage placed at {level} - Measured: {width:.1f}×{length}×{height:.1f}mm with {lordosis:.1f}° lordosis", "success")
                     self.display_image()
                     self.update_implant_summary()
                     
@@ -1406,6 +1488,201 @@ class SpineForgePlanner:
         self.screw_drag_start = None
         self.canvas.config(cursor="cross")
                 
+        
+    def start_drag_cage(self, event):
+        """Check if we're clicking on a cage to drag it"""
+        if self.image is None:
+            return
+        
+        # Get the item under the cursor
+        item = self.canvas.find_closest(event.x, event.y)
+        if item:
+            tags = self.canvas.gettags(item[0])
+            # Skip if we clicked on a label
+            if "cage_label" in tags:
+                return
+        
+        # Convert click position to image coordinates
+        x = (event.x - self.offset[0]) / self.zoom
+        y = (event.y - self.offset[1]) / self.zoom
+        
+        # Check if click is inside any cage
+        for i, cage in enumerate(self.cages):
+            corners = cage["corners"]
+            # Check if point is inside the quadrilateral
+            if self.point_in_quad(x, y, corners):
+                self.dragging_cage = i
+                self.cage_drag_start = (event.x, event.y)
+                self.canvas.config(cursor="fleur")
+                return
+        
+        # Check corpectomy cages too
+        for i, cage in enumerate(self.corpectomy_cages):
+            if "center" in cage:  # Template style
+                center = cage["center"]
+                radius = cage.get("radius", 20)
+                if math.sqrt((x - center[0])**2 + (y - center[1])**2) < radius:
+                    self.dragging_cage = ("corpectomy", i)
+                    self.cage_drag_start = (event.x, event.y)
+                    self.canvas.config(cursor="fleur")
+                    return
+    
+    def point_in_quad(self, x, y, corners):
+        """Check if a point is inside a quadrilateral using ray casting"""
+        if len(corners) != 4:
+            return False
+        
+        # Ray casting algorithm
+        inside = False
+        p1x, p1y = corners[-1]
+        for p2x, p2y in corners:
+            if y > min(p1y, p2y):
+                if y <= max(p1y, p2y):
+                    if x <= max(p1x, p2x):
+                        if p1y != p2y:
+                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                        if p1x == p2x or x <= xinters:
+                            inside = not inside
+            p1x, p1y = p2x, p2y
+        return inside
+    
+    def create_cage_handles(self, cage_index):
+        """Create resize handles for a selected cage"""
+        cage = self.cages[cage_index]
+        corners = cage["corners"]
+        
+        self.cage_handles = []
+        for i, (x, y) in enumerate(corners):
+            sx, sy = x * self.zoom + self.offset[0], y * self.zoom + self.offset[1]
+            handle = self.canvas.create_rectangle(sx-4, sy-4, sx+4, sy+4, 
+                                                 fill='white', outline='red', width=2, 
+                                                 tags=("cage_handle", f"handle_{i}"))
+            self.cage_handles.append(handle)
+        
+        self.selected_cage = cage_index
+        self.resizing_cage = False
+    
+    def start_resize_cage(self, event):
+        """Start resizing a cage by dragging its corner handle"""
+        item = self.canvas.find_closest(event.x, event.y)
+        if item:
+            tags = self.canvas.gettags(item[0])
+            if "cage_handle" in tags:
+                # Find which handle was clicked
+                for tag in tags:
+                    if tag.startswith("handle_"):
+                        self.resizing_handle = int(tag.split("_")[1])
+                        self.resizing_cage = True
+                        self.resize_start = (event.x, event.y)
+                        self.canvas.config(cursor="sizing")
+                        return
+    
+    def on_resize_cage(self, event):
+        """Resize cage by dragging handle"""
+        if not self.resizing_cage or self.selected_cage is None:
+            return
+        
+        # Update the corner position
+        x = (event.x - self.offset[0]) / self.zoom
+        y = (event.y - self.offset[1]) / self.zoom
+        
+        self.cages[self.selected_cage]["corners"][self.resizing_handle] = (x, y)
+        
+        # Recalculate cage dimensions
+        cage = self.cages[self.selected_cage]
+        points = cage["corners"]
+        
+        # Recalculate dimensions
+        bottom_width = math.sqrt((points[1][0] - points[0][0])**2 + 
+                                (points[1][1] - points[0][1])**2) * self.pixel_spacing[0]
+        top_width = math.sqrt((points[3][0] - points[2][0])**2 + 
+                             (points[3][1] - points[2][1])**2) * self.pixel_spacing[0]
+        width = (bottom_width + top_width) / 2
+        
+        left_height = math.sqrt((points[2][0] - points[0][0])**2 + 
+                               (points[2][1] - points[0][1])**2) * self.pixel_spacing[1]
+        right_height = math.sqrt((points[3][0] - points[1][0])**2 + 
+                                (points[3][1] - points[1][1])**2) * self.pixel_spacing[1]
+        height = (left_height + right_height) / 2
+        
+        lordosis = math.degrees(math.atan2(abs(top_width - bottom_width), height))
+        
+        # Update cage dimensions
+        cage["width"] = round(width, 1)
+        cage["height"] = round(height, 1)
+        cage["lordosis"] = round(lordosis, 1)
+        
+        # Redraw everything
+        self.display_image()
+        self.create_cage_handles(self.selected_cage)
+        self.update_implant_summary()
+    
+    def stop_resize_cage(self, event):
+        """Stop resizing cage"""
+        if self.resizing_cage and self.selected_cage is not None:
+            cage = self.cages[self.selected_cage]
+            self.show_status(f"Cage resized: {cage['width']}×{cage['height']}mm, {cage['lordosis']}° lordosis", "info")
+        
+        self.resizing_cage = False
+        self.resizing_handle = None
+        self.canvas.config(cursor="cross")
+        
+        # Remove handles after a delay
+        self.root.after(2000, self.clear_cage_handles)
+    
+    def clear_cage_handles(self):
+        """Remove cage resize handles"""
+        self.canvas.delete("cage_handle")
+        self.selected_cage = None
+    
+    def on_drag_cage(self, event):
+        """Drag a cage to new position"""
+        if self.dragging_cage is None or self.cage_drag_start is None:
+            return
+        
+        # Calculate movement in image coordinates
+        dx = (event.x - self.cage_drag_start[0]) / self.zoom
+        dy = (event.y - self.cage_drag_start[1]) / self.zoom
+        
+        # Move the appropriate cage
+        if isinstance(self.dragging_cage, tuple) and self.dragging_cage[0] == "corpectomy":
+            # Dragging a corpectomy cage
+            _, idx = self.dragging_cage
+            cage = self.corpectomy_cages[idx]
+            if "center" in cage:
+                old_x, old_y = cage["center"]
+                cage["center"] = (old_x + dx, old_y + dy)
+            elif "top" in cage and "bottom" in cage:
+                cage["top"] = (cage["top"][0] + dx, cage["top"][1] + dy)
+                cage["bottom"] = (cage["bottom"][0] + dx, cage["bottom"][1] + dy)
+        else:
+            # Dragging an interbody cage
+            cage = self.cages[self.dragging_cage]
+            # Move all corners
+            for i in range(len(cage["corners"])):
+                old_x, old_y = cage["corners"][i]
+                cage["corners"][i] = (old_x + dx, old_y + dy)
+        
+        # Update drag start position
+        self.cage_drag_start = (event.x, event.y)
+        
+        # Redraw
+        self.display_image()
+    
+    def stop_drag_cage(self, event):
+        """Stop dragging a cage"""
+        if self.dragging_cage is not None:
+            if isinstance(self.dragging_cage, tuple):
+                cage_type = "Corpectomy cage"
+            else:
+                cage = self.cages[self.dragging_cage]
+                cage_type = f"{cage['level']} cage"
+            self.show_status(f"{cage_type} repositioned", "info")
+        
+        self.dragging_cage = None
+        self.cage_drag_start = None
+        self.canvas.config(cursor="cross")
+    
     def setup_status_area(self):
         """Set up the status notification area in the UI"""
         # Create a fixed-height frame for status messages at the top of the right sidebar
@@ -1735,8 +2012,29 @@ class SpineForgePlanner:
                 tk.Button(cage_frame, text="×", command=lambda idx=original_idx: self.delete_implant("cage", idx),
                         bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
         
-        # In update_implant_summary method, add this section after cages:
-        # Add osteotomies to summary
+        # Add corpectomy cages to summary
+        if self.corpectomy_cages:
+            tk.Label(scrollable_frame, text="Corpectomy Cages:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", pady=(10,0))
+            
+            sorted_corp_cages = sorted(enumerate(self.corpectomy_cages), 
+                                      key=lambda x: vertebral_level_order(x[1].get("level", "")))
+            
+            for i, (original_idx, cage) in enumerate(sorted_corp_cages):
+                level = cage.get("level", "")
+                diameter = cage.get("diameter", "")
+                height = cage.get("height_mm", cage.get("height", ""))
+                
+                cage_frame = tk.Frame(scrollable_frame, bg="white")
+                cage_frame.pack(fill="x", pady=1)
+                
+                tk.Label(cage_frame, text=f"{i+1}. {level} - Ø{diameter}×{height}mm", 
+                       bg="white").pack(side="left")
+                
+                # Add delete button
+                tk.Button(cage_frame, text="×", command=lambda idx=original_idx: self.delete_implant("corpectomy", idx),
+                        bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
+        
+            # Add osteotomies to summary
         if self.osteotomies:
             tk.Label(scrollable_frame, text="Osteotomies:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", pady=(10,0))
             
@@ -1770,6 +2068,9 @@ class SpineForgePlanner:
             elif implant_type == "cage" and 0 <= index < len(self.cages):
                 del self.cages[index]
                 self.show_status(f"Cage {index+1} deleted.", "info")
+            elif implant_type == "corpectomy" and 0 <= index < len(self.corpectomy_cages):
+                del self.corpectomy_cages[index]
+                self.show_status(f"Corpectomy cage {index+1} deleted.", "info")
                 
             self.update_implant_summary()
             self.display_image()
@@ -2768,20 +3069,88 @@ class SpineForgePlanner:
                 polygon_points.extend([sx, sy])
                 
             # Draw the cage polygon with semi-transparent fill
-            self.canvas.create_polygon(polygon_points, outline='orange', fill='orange', 
-                                     stipple='gray50', width=2)
+            # Draw the cage polygon with semi-transparent fill (make it the bottom layer)
+            cage_poly = self.canvas.create_polygon(polygon_points, outline='orange', fill='orange', 
+                                                  stipple='gray50', width=2, tags=("cage_body",))
             
-            # Label the cage
+            # Calculate center for label
             center_x = sum(p[0] for p in corners) / len(corners)
             center_y = sum(p[1] for p in corners) / len(corners)
             sc_x, sc_y = scaled((center_x, center_y))
             
-            # Draw the label with white background for visibility
-            self.canvas.create_rectangle(sc_x-50, sc_y-10, sc_x+130, sc_y+10, 
-                                       fill='black', stipple='gray50')
-            self.canvas.create_text(sc_x, sc_y, text=f"{level} Cage {width}×{length}×{height}mm {lordosis}°", 
-                                  fill='yellow', anchor="center")
+            # Draw label elements with "label" tag so they don't interfere with clicking
+            bg_rect = self.canvas.create_rectangle(sc_x-50, sc_y-10, sc_x+130, sc_y+10, 
+                                                  fill='black', stipple='gray50', tags=("cage_label",))
+            text = self.canvas.create_text(sc_x, sc_y, 
+                                          text=f"{level} Cage {width}×{length}×{height}mm {lordosis}°", 
+                                          fill='yellow', anchor="center", tags=("cage_label",))
+            
+            # Lower labels below cage body so they don't interfere
+            self.canvas.tag_lower("cage_label", "cage_body")
+            
+        # Draw corpectomy cages
+        for cage in self.corpectomy_cages:
+            level = cage.get("level", "")
+            
+            if "center" in cage:  # Template style
+                center_x, center_y = scaled(cage["center"])
+                radius = cage.get("radius", 20) * self.zoom
+                height_px = cage.get("height_px", 50) * self.zoom
+                
+                # Draw cylindrical representation (top and bottom circles + connecting lines)
+                self.canvas.create_oval(center_x - radius, center_y - height_px/2 - radius/3,
+                                       center_x + radius, center_y - height_px/2 + radius/3,
+                                       outline='cyan', fill='cyan', stipple='gray50', width=2)
+                self.canvas.create_oval(center_x - radius, center_y + height_px/2 - radius/3,
+                                       center_x + radius, center_y + height_px/2 + radius/3,
+                                       outline='cyan', fill='cyan', stipple='gray50', width=2)
+                # Side lines
+                self.canvas.create_line(center_x - radius, center_y - height_px/2,
+                                       center_x - radius, center_y + height_px/2,
+                                       fill='cyan', width=2)
+                self.canvas.create_line(center_x + radius, center_y - height_px/2,
+                                       center_x + radius, center_y + height_px/2,
+                                       fill='cyan', width=2)
+                
+                # Label
+                diameter = cage.get("diameter", 22)
+                height = cage.get("height_mm", 50)
+                self.canvas.create_text(center_x, center_y, 
+                                       text=f"{level} Corpectomy\nØ{diameter}×{height}mm",
+                                       fill='white', anchor="center", font=('Arial', 9, 'bold'))
+            else:  # Draw style with top/bottom points
+                if "top" in cage and "bottom" in cage:
+                    top_x, top_y = scaled(cage["top"])
+                    bottom_x, bottom_y = scaled(cage["bottom"])
+                    
+                    # Calculate width based on diameter
+                    radius = (cage.get("diameter", 22) / self.pixel_spacing[0] / 2) * self.zoom
+                    
+                    # Draw cylindrical shape
+                    self.canvas.create_oval(top_x - radius, top_y - 5,
+                                           top_x + radius, top_y + 5,
+                                           outline='cyan', fill='cyan', stipple='gray50', width=2)
+                    self.canvas.create_oval(bottom_x - radius, bottom_y - 5,
+                                           bottom_x + radius, bottom_y + 5,
+                                           outline='cyan', fill='cyan', stipple='gray50', width=2)
+                    # Side lines
+                    self.canvas.create_line(top_x - radius, top_y,
+                                           bottom_x - radius, bottom_y,
+                                           fill='cyan', width=2)
+                    self.canvas.create_line(top_x + radius, top_y,
+                                           bottom_x + radius, bottom_y,
+                                           fill='cyan', width=2)
+                    
+                    # Label
+                    diameter = cage.get("diameter", 22)
+                    height = cage.get("height", 50)
+                    center_x = (top_x + bottom_x) / 2
+                    center_y = (top_y + bottom_y) / 2
+                    self.canvas.create_text(center_x, center_y,
+                                           text=f"{level} Corpectomy\nØ{diameter}×{height}mm",
+                                           fill='white', anchor="center", font=('Arial', 9, 'bold'))
 
+    
     def draw_rod(self):
         if not self.rod_line:
             return
