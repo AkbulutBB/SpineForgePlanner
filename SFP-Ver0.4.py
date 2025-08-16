@@ -87,9 +87,17 @@ class SpineForgePlanner:
         
         # Add these to your existing state variables
         self.current_cage_type = None  # 'interbody_draw', 'interbody_template', etc.
+        # Cage interaction state
         self.dragging_cage = None
         self.cage_drag_start = None
+        self.resizing_cage = False
+        self.resizing_handle = None
+        self.selected_cage = None
+        self.cage_handles = []
+        
         self.corpectomy_cages = []  # Separate list for corpectomy cages
+        
+        
         
         self.dragging_screw = None
         self.dragging_screw_part = None  # 'head' or 'tip'
@@ -657,7 +665,9 @@ class SpineForgePlanner:
             "   - Left superior endplate corner\n"  
             "   - Right superior endplate corner\n"
             "3. Alt+Click and drag to reposition\n"
-            "4. Shift+Click to show resize handles"
+            "4. Shift+Click to reveal resize handles\n"
+            "5. Move handles by dragging to resize\n"
+            "6. Shift+Click to hide resize handles"
         )
         tk.Label(self.interbody_draw_frame, text=draw_instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
         
@@ -741,7 +751,8 @@ class SpineForgePlanner:
         instructions = (
             "Corpectomy cage replaces a removed vertebral body.\n"
             "Draw mode: Click to define cage boundaries\n"
-            "Template mode: Drag pre-sized cage into position"
+            "Template mode: Place pre-sized cage into position\n"
+            "Alt+Click and drag to reposition"
         )
         tk.Label(instructions_frame, text=instructions, bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=10)
         
@@ -1506,7 +1517,7 @@ class SpineForgePlanner:
         x = (event.x - self.offset[0]) / self.zoom
         y = (event.y - self.offset[1]) / self.zoom
         
-        # Check if click is inside any cage
+        # Check if click is inside any interbody cage
         for i, cage in enumerate(self.cages):
             corners = cage["corners"]
             # Check if point is inside the quadrilateral
@@ -1516,7 +1527,7 @@ class SpineForgePlanner:
                 self.canvas.config(cursor="fleur")
                 return
         
-        # Check corpectomy cages too
+        # Check corpectomy cages
         for i, cage in enumerate(self.corpectomy_cages):
             if "center" in cage:  # Template style
                 center = cage["center"]
@@ -1526,6 +1537,48 @@ class SpineForgePlanner:
                     self.cage_drag_start = (event.x, event.y)
                     self.canvas.config(cursor="fleur")
                     return
+            elif "top" in cage and "bottom" in cage:  # Draw style
+                # Check if click is near the line between top and bottom
+                top = cage["top"]
+                bottom = cage["bottom"]
+                # Calculate distance from point to line segment
+                line_dist = self.point_to_line_distance(x, y, top, bottom)
+                if line_dist < (cage.get("diameter", 20) / self.pixel_spacing[0] / 2):
+                    self.dragging_cage = ("corpectomy", i)
+                    self.cage_drag_start = (event.x, event.y)
+                    self.canvas.config(cursor="fleur")
+                    return
+    
+    def point_to_line_distance(self, px, py, line_start, line_end):
+        """Calculate distance from point to line segment"""
+        x1, y1 = line_start
+        x2, y2 = line_end
+        
+        # Calculate the distance from point to line segment
+        A = px - x1
+        B = py - y1
+        C = x2 - x1
+        D = y2 - y1
+        
+        dot = A * C + B * D
+        len_sq = C * C + D * D
+        
+        if len_sq == 0:
+            return math.sqrt(A * A + B * B)
+        
+        param = dot / len_sq
+        
+        if param < 0:
+            xx, yy = x1, y1
+        elif param > 1:
+            xx, yy = x2, y2
+        else:
+            xx = x1 + param * C
+            yy = y1 + param * D
+        
+        dx = px - xx
+        dy = py - yy
+        return math.sqrt(dx * dx + dy * dy)
     
     def point_in_quad(self, x, y, corners):
         """Check if a point is inside a quadrilateral using ray casting"""
@@ -1582,13 +1635,14 @@ class SpineForgePlanner:
         if not self.resizing_cage or self.selected_cage is None:
             return
         
-        # Update the corner position
+        # Update the corner position directly from mouse coordinates
         x = (event.x - self.offset[0]) / self.zoom
         y = (event.y - self.offset[1]) / self.zoom
         
+        # Update the corner position immediately
         self.cages[self.selected_cage]["corners"][self.resizing_handle] = (x, y)
         
-        # Recalculate cage dimensions
+        # Only recalculate dimensions, don't recreate handles during drag
         cage = self.cages[self.selected_cage]
         points = cage["corners"]
         
@@ -1612,16 +1666,34 @@ class SpineForgePlanner:
         cage["height"] = round(height, 1)
         cage["lordosis"] = round(lordosis, 1)
         
-        # Redraw everything
+        # Redraw only the image and cages, not the handles during dragging
         self.display_image()
-        self.create_cage_handles(self.selected_cage)
+        # Update handle positions without recreating them
+        self.update_cage_handles()
         self.update_implant_summary()
+    
+    def update_cage_handles(self):
+        """Update positions of existing cage handles without recreating them"""
+        if self.selected_cage is None or not self.cage_handles:
+            return
+        
+        cage = self.cages[self.selected_cage]
+        corners = cage["corners"]
+        
+        for i, (x, y) in enumerate(corners):
+            if i < len(self.cage_handles):
+                sx, sy = x * self.zoom + self.offset[0], y * self.zoom + self.offset[1]
+                # Move existing handle instead of recreating it
+                self.canvas.coords(self.cage_handles[i], sx-4, sy-4, sx+4, sy+4)
     
     def stop_resize_cage(self, event):
         """Stop resizing cage"""
         if self.resizing_cage and self.selected_cage is not None:
             cage = self.cages[self.selected_cage]
             self.show_status(f"Cage resized: {cage['width']}×{cage['height']}mm, {cage['lordosis']}° lordosis", "info")
+            
+            # Now recreate handles with final positions
+            self.create_cage_handles(self.selected_cage)
         
         self.resizing_cage = False
         self.resizing_handle = None
