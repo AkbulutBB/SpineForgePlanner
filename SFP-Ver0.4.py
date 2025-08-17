@@ -80,6 +80,14 @@ class SpineForgePlanner:
             "femoral": "#D35400" # Dark orange
         }
         
+        # Add these lines after the existing initialization variables (around line with self.screws = [])
+        self.measurements = []  # Store distance and angle measurements
+        self.measurement_points = []  # Temporary storage for measurement creation
+        self.current_measurement_tool = None  # Track active measurement tool
+        self.dragging_measurement = None  # For dragging measurement points
+        self.dragging_measurement_point = None  # Which point is being dragged
+        self.measurement_drag_start = None  # Start position for dragging
+        
         # Implant state
         self.screws = []
         self.current_screw = None
@@ -259,7 +267,33 @@ class SpineForgePlanner:
                     label, name = self.point_buttons[i + j]
                     tk.Button(row, text=label, width=18, command=lambda n=name: self.set_current_landmark(n)).pack(side="left", padx=2, pady=1)
 
+        # Add measurement tools section to landmarks tab (add this after the point buttons)
+        measurement_tools_frame = tk.Frame(self.landmark_tab, bg="lightgray")
+        measurement_tools_frame.pack(pady=(20, 5), fill="x")
         
+        tk.Label(measurement_tools_frame, text="Measurement Tools:", bg="lightgray", 
+                 font=("Arial", 10, "bold")).pack(anchor="w", padx=5)
+        
+        tools_button_frame = tk.Frame(measurement_tools_frame, bg="lightgray")
+        tools_button_frame.pack(pady=5)
+        
+        # Length measurement button
+        length_btn = tk.Button(tools_button_frame, text="Length", 
+                              command=lambda: self.start_measurement_tool("length"),
+                              bg="lightblue", width=10)
+        length_btn.pack(side="left", padx=2)
+        
+        # Angle measurement button  
+        angle_btn = tk.Button(tools_button_frame, text="Angle",
+                             command=lambda: self.start_measurement_tool("angle"),
+                             bg="lightgreen", width=10)
+        angle_btn.pack(side="left", padx=2)
+        
+        # Instructions for measurements
+        tk.Label(measurement_tools_frame, 
+                 text="Length: Click two points to measure distance\nAngle: Click three points to measure angle",
+                 bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=5)
+                
         # Rod Export Options
         rod_frame = tk.Frame(self.rod_tab, bg="lightgray")
         rod_frame.pack(pady=5, fill="x")
@@ -334,7 +368,6 @@ class SpineForgePlanner:
         tk.Label(self.correction_frame, text="Predicted Correction:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", padx=5, pady=2)
         self.correction_label = tk.Label(self.correction_frame, text="Place osteotomy points first", bg="white", font=("Arial", 9))
         self.correction_label.pack(anchor="w", padx=15, pady=2)
-        
         
         # Center panel for the image
         self.center_panel = tk.Frame(self.main_frame)
@@ -510,6 +543,12 @@ class SpineForgePlanner:
         self.implant_list_frame = tk.Frame(self.right_sidebar, bg="white")
         self.implant_list_frame.pack(fill="x", padx=5, pady=5)
         
+        # Measurements Tab - Add this RIGHT AFTER the implants tab in setup_right_sidebar()
+        # (This should go in the RIGHT sidebar tab control, not the main tab control)
+        self.measurements_tab = tk.Frame(self.tab_control, bg="lightgray")  # Use RIGHT sidebar tab_control
+        self.tab_control.add(self.measurements_tab, text="Measurements")
+        self.setup_measurements_tab()
+        
         # Need to update for full scrollable height
         def _update_scroll_region(event=None):
             measurements_canvas.update_idletasks()  # Make sure everything is measured correctly
@@ -549,6 +588,11 @@ class SpineForgePlanner:
         self.canvas.bind("<Button-1>", self.handle_cage_interaction, add="+")
         self.canvas.bind("<B1-Motion>", self.handle_cage_drag_or_resize, add="+")
         self.canvas.bind("<ButtonRelease-1>", self.handle_cage_release, add="+")
+        
+        # Add measurement dragging bindings (add this after the existing cage bindings)
+        self.canvas.bind("<Control-Alt-Button-1>", self.start_drag_measurement)
+        self.canvas.bind("<Control-Alt-B1-Motion>", self.on_drag_measurement)
+        self.canvas.bind("<Control-Alt-ButtonRelease-1>", self.stop_drag_measurement)
         
         self.canvas.bind("<Motion>", self.on_mouse_motion)
         
@@ -1141,6 +1185,7 @@ class SpineForgePlanner:
             self.draw_landmarks()
             self.draw_implants()
             self.draw_osteotomy()
+            self.draw_measurements()
             if self.rod_line:
                 self.draw_rod()
             self.draw_connecting_lines()  # Add connecting lines after drawing labels
@@ -1186,6 +1231,12 @@ class SpineForgePlanner:
                 self.info_label.config(text=f"Distance: {pixel_dist:.1f} pixels. Enter real distance.")
                 
                 self.finish_calibration()
+            return
+        
+        if self.current_measurement_tool is not None:
+            x = int((event.x - self.offset[0]) / self.zoom)
+            y = int((event.y - self.offset[1]) / self.zoom)
+            self.add_measurement_point(x, y)
             return
         
         # Handle landmark placement (your existing logic)
@@ -1453,6 +1504,273 @@ class SpineForgePlanner:
                 self.display_image()
                 self.update_implant_summary()
                 
+    def setup_measurements_tab(self):
+        """Setup the measurements display and controls"""
+        measurements_frame = tk.Frame(self.measurements_tab, bg="lightgray")
+        measurements_frame.pack(pady=5, fill="both", expand=True)
+        
+        tk.Label(measurements_frame, text="Active Measurements:", bg="lightgray", 
+                 font=("Arial", 10, "bold")).pack(anchor="w", padx=5)
+        
+        # Scrollable frame for measurements list
+        canvas = tk.Canvas(measurements_frame, bg="white", height=200)
+        scrollbar = ttk.Scrollbar(measurements_frame, orient="vertical", command=canvas.yview)
+        self.measurements_list_frame = tk.Frame(canvas, bg="white")
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        
+        canvas.pack(side="left", fill="both", expand=True, padx=5)
+        scrollbar.pack(side="right", fill="y")
+        canvas.create_window((0, 0), window=self.measurements_list_frame, anchor="nw")
+        
+        # Clear all measurements button
+        clear_btn = tk.Button(measurements_frame, text="Clear All Measurements",
+                             command=self.clear_all_measurements, bg="red", fg="white")
+        clear_btn.pack(pady=5)
+    
+    def start_measurement_tool(self, tool_type):
+        """Start a measurement tool (length or angle)"""
+        self.current_measurement_tool = tool_type
+        self.measurement_points = []
+        
+        if tool_type == "length":
+            self.show_status("Click two points to measure distance", "info", persistent=True)
+        elif tool_type == "angle":
+            self.show_status("Click three points to measure angle", "info", persistent=True)
+    
+    def add_measurement_point(self, x, y):
+        """Add a point for the current measurement tool"""
+        if self.current_measurement_tool is None:
+            return
+        
+        self.measurement_points.append((x, y))
+        
+        if self.current_measurement_tool == "length" and len(self.measurement_points) == 2:
+            self.complete_length_measurement()
+        elif self.current_measurement_tool == "angle" and len(self.measurement_points) == 3:
+            self.complete_angle_measurement()
+        
+        self.display_image()
+    
+    def complete_length_measurement(self):
+        """Complete a length measurement"""
+        if len(self.measurement_points) != 2:
+            return
+        
+        p1, p2 = self.measurement_points
+        distance = math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2) * self.pixel_spacing[0]
+        
+        measurement = {
+            "type": "length",
+            "points": self.measurement_points.copy(),
+            "value": distance,
+            "label": f"Length: {distance:.1f}mm"
+        }
+        
+        self.measurements.append(measurement)
+        self.current_measurement_tool = None
+        self.measurement_points = []
+        self.end_persistent_instruction()
+        self.show_status(f"Length measurement: {distance:.1f}mm", "success")
+        self.update_measurements_display()
+    
+    def complete_angle_measurement(self):
+        """Complete an angle measurement"""
+        if len(self.measurement_points) != 3:
+            return
+        
+        p1, p2, p3 = self.measurement_points
+        
+        # Calculate angle using vectors
+        v1 = (p1[0] - p2[0], p1[1] - p2[1])  # Vector from p2 to p1
+        v2 = (p3[0] - p2[0], p3[1] - p2[1])  # Vector from p2 to p3
+        
+        # Calculate angle between vectors
+        dot_product = v1[0] * v2[0] + v1[1] * v2[1]
+        mag1 = math.sqrt(v1[0]**2 + v1[1]**2)
+        mag2 = math.sqrt(v2[0]**2 + v2[1]**2)
+        
+        if mag1 == 0 or mag2 == 0:
+            angle = 0
+        else:
+            cos_angle = dot_product / (mag1 * mag2)
+            cos_angle = max(-1, min(1, cos_angle))  # Clamp to [-1, 1]
+            angle = math.degrees(math.acos(cos_angle))
+        
+        measurement = {
+            "type": "angle", 
+            "points": self.measurement_points.copy(),
+            "value": angle,
+            "label": f"Angle: {angle:.1f}°"
+        }
+        
+        self.measurements.append(measurement)
+        self.current_measurement_tool = None
+        self.measurement_points = []
+        self.end_persistent_instruction()
+        self.show_status(f"Angle measurement: {angle:.1f}°", "success")
+        self.update_measurements_display()
+    
+    def update_measurements_display(self):
+        """Update the measurements list in the measurements tab"""
+        # Clear existing widgets
+        for widget in self.measurements_list_frame.winfo_children():
+            widget.destroy()
+        
+        for i, measurement in enumerate(self.measurements):
+            meas_frame = tk.Frame(self.measurements_list_frame, bg="white")
+            meas_frame.pack(fill="x", pady=1)
+            
+            tk.Label(meas_frame, text=f"{i+1}. {measurement['label']}", 
+                    bg="white").pack(side="left")
+            
+            # Delete button
+            tk.Button(meas_frame, text="×", 
+                     command=lambda idx=i: self.delete_measurement(idx),
+                     bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
+    
+    def delete_measurement(self, index):
+        """Delete a measurement"""
+        if 0 <= index < len(self.measurements):
+            del self.measurements[index]
+            self.update_measurements_display()
+            self.display_image()
+            self.show_status(f"Measurement {index+1} deleted", "info")
+    
+    def clear_all_measurements(self):
+        """Clear all measurements"""
+        self.measurements = []
+        self.update_measurements_display()
+        self.display_image()
+        self.show_status("All measurements cleared", "info")
+    
+    def start_drag_measurement(self, event):
+        """Check if clicking on a measurement point to drag it"""
+        if self.image is None:
+            return
+        
+        # Convert click position to image coordinates
+        x = (event.x - self.offset[0]) / self.zoom
+        y = (event.y - self.offset[1]) / self.zoom
+        
+        # Check if we're near any measurement point
+        threshold = 10 / self.zoom  # 10 pixels threshold, adjusted for zoom
+        
+        for i, measurement in enumerate(self.measurements):
+            for j, point in enumerate(measurement["points"]):
+                if math.sqrt((x - point[0])**2 + (y - point[1])**2) < threshold:
+                    self.dragging_measurement = i
+                    self.dragging_measurement_point = j
+                    self.measurement_drag_start = (event.x, event.y)
+                    self.canvas.config(cursor="fleur")
+                    return
+    
+    def on_drag_measurement(self, event):
+        """Drag a measurement point to new position"""
+        if self.dragging_measurement is None or self.measurement_drag_start is None:
+            return
+        
+        # Calculate movement in image coordinates
+        dx = (event.x - self.measurement_drag_start[0]) / self.zoom
+        dy = (event.y - self.measurement_drag_start[1]) / self.zoom
+        
+        # Update measurement point position
+        measurement = self.measurements[self.dragging_measurement]
+        old_x, old_y = measurement["points"][self.dragging_measurement_point]
+        measurement["points"][self.dragging_measurement_point] = (old_x + dx, old_y + dy)
+        
+        # Recalculate measurement value
+        if measurement["type"] == "length":
+            p1, p2 = measurement["points"]
+            distance = math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2) * self.pixel_spacing[0]
+            measurement["value"] = distance
+            measurement["label"] = f"Length: {distance:.1f}mm"
+        elif measurement["type"] == "angle":
+            p1, p2, p3 = measurement["points"]
+            v1 = (p1[0] - p2[0], p1[1] - p2[1])
+            v2 = (p3[0] - p2[0], p3[1] - p2[1])
+            dot_product = v1[0] * v2[0] + v1[1] * v2[1]
+            mag1 = math.sqrt(v1[0]**2 + v1[1]**2)
+            mag2 = math.sqrt(v2[0]**2 + v2[1]**2)
+            if mag1 == 0 or mag2 == 0:
+                angle = 0
+            else:
+                cos_angle = dot_product / (mag1 * mag2)
+                cos_angle = max(-1, min(1, cos_angle))
+                angle = math.degrees(math.acos(cos_angle))
+            measurement["value"] = angle
+            measurement["label"] = f"Angle: {angle:.1f}°"
+        
+        # Update drag start position
+        self.measurement_drag_start = (event.x, event.y)
+        
+        # Redraw
+        self.display_image()
+        self.update_measurements_display()
+    
+    def stop_drag_measurement(self, event):
+        """Stop dragging a measurement point"""
+        if self.dragging_measurement is not None:
+            measurement = self.measurements[self.dragging_measurement]
+            self.show_status(f"Measurement adjusted: {measurement['label']}", "info")
+        
+        self.dragging_measurement = None
+        self.dragging_measurement_point = None
+        self.measurement_drag_start = None
+        self.canvas.config(cursor="cross")
+    
+    def draw_measurements(self):
+        """Draw all measurements on the canvas"""
+        # Helper function to convert image coordinates to canvas coordinates (same as existing code)
+        def scaled(pt):
+            return pt[0] * self.zoom + self.offset[0], pt[1] * self.zoom + self.offset[1]
+        
+        for measurement in self.measurements:
+            points = measurement["points"]
+            
+            if measurement["type"] == "length" and len(points) == 2:
+                # Draw line
+                p1, p2 = points
+                x1, y1 = scaled(p1)
+                x2, y2 = scaled(p2)
+                
+                self.canvas.create_line(x1, y1, x2, y2, fill="blue", width=2, tags="measurement")
+                
+                # Draw measurement points
+                self.canvas.create_oval(x1-3, y1-3, x1+3, y1+3, fill="blue", tags="measurement")
+                self.canvas.create_oval(x2-3, y2-3, x2+3, y2+3, fill="blue", tags="measurement")
+                
+                # Draw label
+                mid_x, mid_y = (x1 + x2) / 2, (y1 + y2) / 2
+                self.canvas.create_text(mid_x, mid_y - 15, text=measurement["label"], 
+                                       fill="blue", font=("Arial", 9, "bold"), tags="measurement")
+                                       
+            elif measurement["type"] == "angle" and len(points) == 3:
+                # Draw angle lines
+                p1, p2, p3 = points
+                x1, y1 = scaled(p1)
+                x2, y2 = scaled(p2)  # vertex
+                x3, y3 = scaled(p3)
+                
+                self.canvas.create_line(x2, y2, x1, y1, fill="green", width=2, tags="measurement")
+                self.canvas.create_line(x2, y2, x3, y3, fill="green", width=2, tags="measurement")
+                
+                # Draw measurement points
+                self.canvas.create_oval(x1-3, y1-3, x1+3, y1+3, fill="green", tags="measurement")
+                self.canvas.create_oval(x2-3, y2-3, x2+3, y2+3, fill="green", tags="measurement")
+                self.canvas.create_oval(x3-3, y3-3, x3+3, y3+3, fill="green", tags="measurement")
+                
+                # Draw angle arc (simplified)
+                self.canvas.create_text(x2, y2 - 20, text=measurement["label"], 
+                                       fill="green", font=("Arial", 9, "bold"), tags="measurement")
+    
+        # Draw temporary measurement points during creation
+        for i, point in enumerate(self.measurement_points):
+            x, y = scaled(point)
+            color = "blue" if self.current_measurement_tool == "length" else "green"
+            self.canvas.create_oval(x-4, y-4, x+4, y+4, fill=color, tags="measurement")  
+    
     def start_drag_screw(self, event):
         """Check if we're clicking on a screw to drag it"""
         if self.image is None or self.current_screw == "placing":
