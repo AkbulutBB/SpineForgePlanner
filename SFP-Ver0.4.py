@@ -141,6 +141,9 @@ class SpineForgePlanner:
         self.save_button.pack(side="left", padx=2)
         self.copy_button = tk.Button(file_frame, text="Copy Results", command=self.copy_to_clipboard)
         self.copy_button.pack(side="left", padx=2)
+        
+        self.flip_button = tk.Button(file_frame, text="Flip H", command=self.flip_image_horizontal)
+        self.flip_button.pack(side="left", padx=2)
 
         # Image enhancement controls (brightness and contrast)
         enhancement_frame = tk.Frame(self.sidebar, bg="lightgray")
@@ -553,6 +556,36 @@ class SpineForgePlanner:
         self.info_label.config(text="Load a DICOM image to begin")
 
     
+    def flip_image_horizontal(self):
+        """Flip the image horizontally (left-right mirror)"""
+        if self.image is None:
+            messagebox.showwarning("Warning", "Please load an image first.")
+            return
+        
+        # Flip the image
+        self.image = self.image.transpose(Image.FLIP_LEFT_RIGHT)
+        
+        # Update all landmark positions to match the flipped image
+        if self.landmarks:
+            img_width = self.image.width
+            for name, (x, y) in self.landmarks.items():
+                # Mirror x-coordinate: new_x = img_width - old_x
+                self.landmarks[name] = (img_width - x, y)
+        
+        # Update all screw positions
+        if self.screws:
+            img_width = self.image.width
+            for screw in self.screws:
+                head_x, head_y = screw["head"]
+                tip_x, tip_y = screw["tip"]
+                screw["head"] = (img_width - head_x, head_y)
+                screw["tip"] = (img_width - tip_x, tip_y)
+        
+        # Update measurements and redraw
+        self.update_measurements()
+        self.display_image()
+        self.show_status("Image flipped horizontally", "info")
+
     def setup_screw_tab(self):
         """Setup the existing screw placement interface"""
         screw_frame = tk.Frame(self.screw_tab, bg="lightgray")
