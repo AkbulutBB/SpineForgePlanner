@@ -2688,6 +2688,18 @@ class SpineForgePlanner:
         
         self.show_status("All osteotomies reset", "info")
     
+    def detect_image_orientation(self, anterior_point, sup_post_point, inf_post_point):
+        """Detect if patient is facing left or right based on point positions"""
+        anterior_x = anterior_point[0]
+        posterior_x = (sup_post_point[0] + inf_post_point[0]) / 2
+        
+        # If anterior is to the left of posterior, patient faces left
+        # If anterior is to the right of posterior, patient faces right
+        if anterior_x < posterior_x:
+            return "sagittal_left"  # Patient facing left
+        else:
+            return "sagittal_right"  # Patient facing right
+    
     def apply_osteotomy(self):
         """Apply the current osteotomy and add it to the list"""
         if len(self.current_osteotomy_points) != 3:
@@ -2769,7 +2781,14 @@ class SpineForgePlanner:
         import numpy as np
         
         anterior, sup_post, inf_post = osteotomy_points
+        orientation = self.detect_image_orientation(*osteotomy_points)
         
+        # Adjust rotation direction based on orientation
+        if orientation == "sagittal_left":
+            rotation_direction = -1  # Clockwise for left-facing
+        else:  # sagittal_right
+            rotation_direction = 1   # Counter-clockwise for right-facing
+             
         # Create a mask to identify regions
         mask = Image.new('L', img.size, 0)
         draw = ImageDraw.Draw(mask)
@@ -2824,7 +2843,7 @@ class SpineForgePlanner:
         # Rotate using PIL's rotate function
         # Use negative angle because PIL rotates counter-clockwise
         rotated_superior = superior_part.rotate(
-            -wedge_angle,
+            rotation_direction * wedge_angle,  # Apply direction multiplier
             center=rotation_center,
             fillcolor=int(self.get_background_color(np.array(img)))
         )
@@ -2840,14 +2859,21 @@ class SpineForgePlanner:
         result.paste(inferior_part, (0, cut_y - wedge_height))
         
         # Transform landmarks
+        # Transform landmarks with orientation awareness
         new_landmarks = {}
+        orientation = self.detect_image_orientation(anterior, sup_post, inf_post)
+        rotation_direction = 1 if orientation == "sagittal_left" else -1
+        
+        # Apply direction to angle
+        corrected_angle_rad = rotation_direction * angle_rad
+        
         for name, (lx, ly) in landmarks.items():
             if ly < cut_y:  # Superior segment
-                # Apply rotation around anterior point
+                # Apply rotation around anterior point with correct direction
                 dx = lx - anterior[0]
                 dy = ly - anterior[1]
-                new_x = anterior[0] + dx * math.cos(angle_rad) - dy * math.sin(angle_rad)
-                new_y = anterior[1] + dx * math.sin(angle_rad) + dy * math.cos(angle_rad)
+                new_x = anterior[0] + dx * math.cos(corrected_angle_rad) - dy * math.sin(corrected_angle_rad)
+                new_y = anterior[1] + dx * math.sin(corrected_angle_rad) + dy * math.cos(corrected_angle_rad)
                 new_landmarks[name] = (new_x, new_y)
             else:  # Inferior segment
                 # Just shift up by wedge height
@@ -2971,11 +2997,16 @@ class SpineForgePlanner:
         anterior, sup_post, inf_post = osteotomy_points
         
         # Calculate rotation angle (POSITIVE for posterior rotation)
-        rotation_angle = math.radians(osteotomy_angle)  # POSITIVE angle
+        # Detect orientation and adjust rotation direction
+        orientation = self.detect_image_orientation(anterior, sup_post, inf_post)
+        rotation_direction = 1 if orientation == "sagittal_left" else -1
         
-        # Create rotation matrix
-        cos_theta = math.cos(rotation_angle)
-        sin_theta = math.sin(rotation_angle)
+        # Apply direction to angle
+        corrected_rotation_angle = math.radians(rotation_direction * osteotomy_angle)
+        
+        # Create rotation matrix with correct direction
+        cos_theta = math.cos(corrected_rotation_angle)
+        sin_theta = math.sin(corrected_rotation_angle)
         rotation_matrix = np.array([[cos_theta, -sin_theta], 
                                    [sin_theta, cos_theta]])
         
