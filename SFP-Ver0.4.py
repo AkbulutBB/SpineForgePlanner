@@ -2610,8 +2610,13 @@ class SpineForgePlanner:
             # Draw C7 endplate
             self.canvas.create_line(c7a_x, c7a_y, c7p_x, c7p_y, fill=self.colors["C2-C7"], width=2)
             # Connect C2 post to C7 post for SVA
-            self.canvas.create_line(c2p_x, c2p_y, c7p_x, c2p_y, fill=self.colors["C2-C7"], width=1, dash=(4, 2))
-            self.canvas.create_line(c7p_x, c2p_y, c7p_x, c7p_y, fill=self.colors["C2-C7"], width=1, dash=(4, 2))
+            # Calculate C2 center for C2-C7 SVA
+            c2_center_x = (c2a_x + c2p_x) / 2
+            c2_center_y = (c2a_y + c2p_y) / 2
+            
+            # Draw C2-C7 SVA from C2 center to C7 posterior
+            self.canvas.create_line(c2_center_x, c2_center_y, c2_center_x, c7p_y, fill=self.colors["C2-C7"], width=1, dash=(4, 2))
+            self.canvas.create_line(c2_center_x, c7p_y, c7p_x, c7p_y, fill=self.colors["C2-C7"], width=1, dash=(4, 2))
             
             # Display C2-C7 lordosis
             lordosis = self.calculate_acute_angle_between_lines(
@@ -2646,7 +2651,9 @@ class SpineForgePlanner:
             store_anchor_point("C2-C7SVA", sva_anchor)
             
             # Position C2-C7 SVA label
-            sva = abs((lm['C2_post'][0] - lm['C7_post'][0]) * px)
+            # Calculate C2-C7 SVA value in image coordinates (with sign)
+            c2_center_x_img = (lm["C2_ant"][0] + lm["C2_post"][0]) / 2
+            c2_c7_sva = (c2_center_x_img - lm["C7_post"][0]) * px  # Keep sign
             label_x, label_y = get_label_position((c7p_x + 15, c2p_y - 20), "C2-C7SVA")
             # Add background
             bg = self.canvas.create_rectangle(
@@ -2659,7 +2666,7 @@ class SpineForgePlanner:
             # Create outlined text
             self.create_outlined_text(
                 label_x, label_y, 
-                text=f"C2-C7 SVA: {sva:.1f}mm",
+                text=f"C2-C7 SVA: {c2_c7_sva:+.1f}mm",  # Use + to always show sign
                 fill_color=self.colors["C2-C7"],
                 font_size=self.text_size,
                 tags=("label:C2-C7SVA",)
@@ -2902,23 +2909,52 @@ class SpineForgePlanner:
             )
                 
         # Draw SVA (Sagittal Vertical Axis)
-        if all(k in lm for k in ["C7_post", "S1_post"]):
+        sva = None  # Initialize sva variable
+        sva_anchor = None  # Initialize anchor variable
+        
+        if all(k in lm for k in ["C7_ant", "C7_post", "S1_post"]):
+            c7a_x, c7a_y = scaled(lm["C7_ant"])
             c7p_x, c7p_y = scaled(lm["C7_post"])
             s1p_x, s1p_y = scaled(lm["S1_post"])
             
-            # Draw C7 plumbline
+            # Calculate C7 center in both coordinate systems
+            c7_center_x = (c7a_x + c7p_x) / 2  # Canvas coordinates for drawing
+            c7_center_y = (c7a_y + c7p_y) / 2
+            c7_center_x_img = (lm["C7_ant"][0] + lm["C7_post"][0]) / 2  # Image coordinates for calculation
+            
+            # Draw C7 plumbline from C7 center
+            self.canvas.create_line(c7_center_x, c7_center_y, c7_center_x, s1p_y, fill=self.colors["SVA"], width=2, dash=(5, 3))
+            
+            # Draw horizontal line to S1
+            self.canvas.create_line(c7_center_x, s1p_y, s1p_x, s1p_y, fill=self.colors["SVA"], width=2)
+            
+            # Calculate SVA value with sign
+            sva = (c7_center_x_img - lm["S1_post"][0]) * px  # Keep sign
+            
+            # Store SVA anchor point
+            sva_anchor = ((c7_center_x + s1p_x) / 2, s1p_y + 20)
+            store_anchor_point("SVA", sva_anchor)
+            
+        elif all(k in lm for k in ["C7_post", "S1_post"]):
+            # Fallback if C7_ant not available
+            c7p_x, c7p_y = scaled(lm["C7_post"])
+            s1p_x, s1p_y = scaled(lm["S1_post"])
+            
+            # Draw C7 plumbline from posterior (as fallback)
             self.canvas.create_line(c7p_x, c7p_y, c7p_x, s1p_y, fill=self.colors["SVA"], width=2, dash=(5, 3))
             
             # Draw horizontal line to S1
             self.canvas.create_line(c7p_x, s1p_y, s1p_x, s1p_y, fill=self.colors["SVA"], width=2)
             
-            # Display SVA value
-            sva = abs((lm['C7_post'][0] - lm['S1_post'][0]) * px)
+            # Calculate SVA value with sign
+            sva = (lm["C7_post"][0] - lm["S1_post"][0]) * px  # Keep sign
             
             # Store SVA anchor point
             sva_anchor = ((c7p_x + s1p_x) / 2, s1p_y + 20)
             store_anchor_point("SVA", sva_anchor)
-            
+        
+        # Draw the label if we have SVA calculated
+        if sva is not None and sva_anchor is not None:
             # Position SVA label
             label_x, label_y = get_label_position(sva_anchor, "SVA")
             # Add background
@@ -2932,7 +2968,7 @@ class SpineForgePlanner:
             # Create outlined text
             self.create_outlined_text(
                 label_x, label_y, 
-                text=f"SVA: {sva:.1f}mm",
+                text=f"SVA: {sva:+.1f}mm",  # Use + to always show sign
                 fill_color=self.colors["SVA"],
                 font_size=self.text_size,
                 tags=("label:SVA",)
@@ -3711,8 +3747,14 @@ class SpineForgePlanner:
         else:
             update("C2–C7 Lordosis", "--")
             
-        update("C2–C7 SVA", f"{abs((lm['C2_post'][0] - lm['C7_post'][0]) * px):.2f} mm") if all(k in lm for k in ["C2_post", "C7_post"]) else update("C2–C7 SVA", "--")
-        
+        # C2-C7 SVA: From C2 center to C7 posterior superior corner
+        if all(k in lm for k in ["C2_ant", "C2_post", "C7_post"]):
+            c2_center_x = (lm['C2_ant'][0] + lm['C2_post'][0]) / 2
+            c2_c7_sva = (c2_center_x - lm['C7_post'][0]) * px  # Remove abs() to keep sign
+            update("C2–C7 SVA", f"{c2_c7_sva:+.2f} mm", baseline_values.get("C2–C7 SVA") if estimated else None)
+        else:
+            update("C2–C7 SVA", "--")
+            
         if all(k in lm for k in ["T1_ant", "T1_post"]):
             t1_slope = self.calculate_acute_slope(lm['T1_ant'], lm['T1_post'])
             update("T1 Slope", f"{t1_slope:.2f}°", baseline_values.get("T1 Slope") if estimated else None)
@@ -3773,8 +3815,19 @@ class SpineForgePlanner:
             update("Pelvic Tilt", "--")
             update("PI (vector)", "--")
             
-        update("SVA", f"{abs((lm['C7_post'][0] - lm['S1_post'][0]) * px):.2f} mm") if all(k in lm for k in ["C7_post", "S1_post"]) else update("SVA", "--")
-    
+        # Overall SVA: From C7 center to S1 posterior superior corner
+        # Positive = anterior (forward), Negative = posterior (backward)
+        if all(k in lm for k in ["C7_ant", "C7_post", "S1_post"]):
+            c7_center_x = (lm['C7_ant'][0] + lm['C7_post'][0]) / 2
+            overall_sva = (c7_center_x - lm['S1_post'][0]) * px  # Remove abs() to keep sign
+            update("SVA", f"{overall_sva:+.2f} mm", baseline_values.get("SVA") if estimated else None)
+        elif all(k in lm for k in ["C7_post", "S1_post"]):
+            # Fallback if C7_ant not available
+            overall_sva = (lm['C7_post'][0] - lm['S1_post'][0]) * px  # Remove abs() to keep sign
+            update("SVA", f"{overall_sva:+.2f} mm", baseline_values.get("SVA") if estimated else None)
+        else:
+            update("SVA", "--")
+            
         if self.osteotomies and any(o["applied"] for o in self.osteotomies):
             self.estimated_label.pack(pady=(20,5))
             self.estimated_container.pack(fill="x", padx=5, pady=5)
