@@ -5,10 +5,12 @@
 
  
 🧠 SpineForgePlanner
-Version: 0.1
-Status: First Public Release
-Website: https://SpineForge.org
+Version: 0.5
+Status: Alpha (Active Development)
+Website: SpineForge.org
+
 Releases: GitHub Releases
+
 Developer: Dr. Bahadır Akbulut, MD
 Contact: b.bahadirakbulut@gmail.com
 
@@ -16,65 +18,94 @@ Contact: b.bahadirakbulut@gmail.com
 
 
 📌 What is SpineForgePlanner?
-SpineForgePlanner is a lightweight tool for analyzing sagittal spinal alignment from DICOM images. Built for spine surgeons and researchers, it enables intuitive landmark placement and instant calculation of key radiographic parameters.
 
-This tool is part of the open-source initiative at SpineForge.org to democratize neurosurgical training and preoperative planning technologies.
+SpineForgePlanner is a lightweight open-source tool for analyzing sagittal spinal alignment from radiographs and DICOM images.
+It is designed for spine surgeons and researchers, providing intuitive landmark placement, implant simulation, and instant calculation of radiographic parameters.
+
+This project is part of the SpineForge.org initiative to democratize neurosurgical training and preoperative planning technologies.
 
 ⚙️ Key Features
-📁 DICOM viewer with contrast normalization
+Core Tools
 
-📍 Interactive anatomical landmark placement (C2–S1, hip joints, chin, brow)
+📁 Image Viewer: Single-slice DICOM support with contrast normalization, plus JPEG/PNG support for plain radiographs
 
-📐 Real-time calculation of:
+📍 Interactive Landmark Placement: C2–S1, cranial, and pelvic reference points
+
+📐 Automatic Parameter Calculations:
 
 CBVA
 
-C2–C7 Lordosis & SVA
+C2–C7 Lordosis & SVA (fixed in v0.5)
 
 T1 Slope
 
 Lumbar Lordosis
 
-Pelvic Tilt, Sacral Slope
-
-Pelvic Incidence (vector and PT+SS sum)
+Pelvic Tilt (PT), Sacral Slope (SS), Pelvic Incidence (PI)
 
 Global SVA
+
+Planning & Simulation
+
+🔩 Implant Planning (early stage): add cages, place screws, auto-generate rods
+
+✂️ Osteotomy Simulation (beta) for deformity correction planning
+
+Workflow Enhancements
+
+📏 Calibration Tools: set real-world scale using markers, now with visible calibration lines
+
+🗂 File & Folder Display: filename and working directory shown for patient tracking
 
 📸 Screenshot export
 
 📋 Copy-to-clipboard results
 
-🖱️ Zoom and pan interface
+🖱️ Zoom & pan interface
 
 🚀 How to Use
+
 Download the latest .exe release
 
 Launch SpineForgePlanner.exe
 
-Load a lateral DICOM image
+Load a sagittal radiograph or DICOM file
 
-Click to place landmarks
+Place landmarks and/or implants
 
-Copy or screenshot your results
+View, copy, or export results
 
-⚠️ This version is Windows-only and supports single-slice sagittal DICOMs
+⚠️ Notes:
+
+Windows-only executable (no installation required)
+
+Single-slice sagittal workflow (multi-slice planned)
+
+Runs smoother via Python than the bundled .exe (slower launch due to packaging overhead)
 
 💡 Roadmap (Planned Features)
-Multi-slice support
 
-CSV/Excel export
+Multi-slice & multi-view support
 
-AI-assisted landmark suggestions
+CSV/Excel export for parameters
 
-In-app tutorials and overlays
+Built-in tutorials and guided workflows
 
-Alignment simulation tools
+Advanced osteotomy/deformity simulation
+
+Validation studies against Surgimap
+
+AI-assisted landmark placement
 
 🧬 About the Project
-SpineForgePlanner is part of the broader SpineForge.org initiative — a nonprofit effort to deliver accessible, validated, and open-source tools for surgical training and planning. We aim to lower the barrier to high-quality education and patient care globally.
+
+SpineForgePlanner is part of SpineForge.org, a nonprofit initiative to create accessible, validated, and open-source tools for surgical training and planning.
+Our goal is to lower barriers to high-quality education and patient care worldwide.
 
 📫 Contact & Contribution
-Questions, suggestions, or collaboration ideas?
-Email: b.bahadirakbulut@gmail.com
-Contribute or follow on GitHub: @AkbulutBB
+
+💌 Email: b.bahadirakbulut@gmail.com
+
+🐙 GitHub: @AkbulutBB
+
+Contributions, feedback, and validation partners are always welcome!
