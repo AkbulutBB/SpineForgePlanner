@@ -1,0 +1,144 @@
+🏥 SpineForge Planner - ICC Reliability Analysis
+==================================================
+✓ Data loaded successfully: 20 cases, 89 variables
+✓ Found 8 measurement pairs
+============================================================
+ICC ANALYSIS RESULTS - SURGIMAP vs SPINEFORGE PLANNER
+============================================================
+Analysis Type: ICC(3,1) - Two-way mixed, single measurement, consistency
+Sample Size: 88 cases
+============================================================
+
+📏 MEASUREMENT: C2–C7 Lordosis
+----------------------------------------
+   Using absolute values for angle measurement
+Surgimap (SM):      Mean = 11.72 ± 11.00
+SpineForge (SP):    Mean = 11.48 ± 11.17
+Difference (SP-SM): Mean = -0.24
+
+🔍 ICC(3,1) Results:
+   ICC = 0.946 (95% CI: 0.903 - 0.968)
+   F(48, 48) = 35.58, p = 0.0000
+   Interpretation: Excellent reliability
+
+📏 MEASUREMENT: C2–C7 SVA
+----------------------------------------
+Surgimap (SM):      Mean = 19.72 ± 11.73
+SpineForge (SP):    Mean = 20.60 ± 10.67
+Difference (SP-SM): Mean = 0.88
+
+🔍 ICC(3,1) Results:
+   ICC = 0.978 (95% CI: 0.966 - 0.989)
+   F(48, 48) = 103.93, p = 0.0000
+   Interpretation: Excellent reliability
+
+📏 MEASUREMENT: T1 Slope
+----------------------------------------
+   Using absolute values for angle measurement
+Surgimap (SM):      Mean = 20.53 ± 5.89
+SpineForge (SP):    Mean = 19.58 ± 6.24
+Difference (SP-SM): Mean = -0.95
+
+🔍 ICC(3,1) Results:
+   ICC = 0.891 (95% CI: 0.825 - 0.941)
+   F(48, 48) = 18.88, p = 0.0000
+   Interpretation: Good reliability
+
+📏 MEASUREMENT: Lumbar Lordosis
+----------------------------------------
+   Using absolute values for angle measurement
+Surgimap (SM):      Mean = 44.92 ± 13.34
+SpineForge (SP):    Mean = 43.43 ± 13.45
+Difference (SP-SM): Mean = -1.50
+
+🔍 ICC(3,1) Results:
+   ICC = 0.964 (95% CI: 0.945 - 0.982)
+   F(48, 48) = 64.16, p = 0.0000
+   Interpretation: Excellent reliability
+
+📏 MEASUREMENT: Sacral Slope
+----------------------------------------
+   Using absolute values for angle measurement
+Surgimap (SM):      Mean = 32.14 ± 7.55
+SpineForge (SP):    Mean = 31.86 ± 8.11
+Difference (SP-SM): Mean = -0.27
+
+🔍 ICC(3,1) Results:
+   ICC = 0.954 (95% CI: 0.917 - 0.973)
+   F(48, 48) = 41.81, p = 0.0000
+   Interpretation: Excellent reliability
+
+📏 MEASUREMENT: Pelvic Tilt
+----------------------------------------
+   Using absolute values for angle measurement
+Surgimap (SM):      Mean = 12.25 ± 8.38
+SpineForge (SP):    Mean = 11.83 ± 8.20
+Difference (SP-SM): Mean = -0.42
+
+🔍 ICC(3,1) Results:
+   ICC = 0.985 (95% CI: 0.975 - 0.992)
+   F(48, 48) = 141.52, p = 0.0000
+   Interpretation: Excellent reliability
+
+📏 MEASUREMENT: PI (vector)
+----------------------------------------
+   Using absolute values for angle measurement
+Surgimap (SM):      Mean = 44.27 ± 8.79
+SpineForge (SP):    Mean = 43.51 ± 8.77
+Difference (SP-SM): Mean = -0.75
+
+🔍 ICC(3,1) Results:
+   ICC = 0.954 (95% CI: 0.923 - 0.975)
+   F(48, 48) = 45.00, p = 0.0000
+   Interpretation: Excellent reliability
+
+📏 MEASUREMENT: SVA
+----------------------------------------
+Surgimap (SM):      Mean = 3.25 ± 45.69
+SpineForge (SP):    Mean = 2.44 ± 45.46
+Difference (SP-SM): Mean = -0.80
+
+🔍 ICC(3,1) Results:
+   ICC = 0.999 (95% CI: 0.998 - 0.999)
+   F(48, 48) = 1725.29, p = 0.0000
+   Interpretation: Excellent reliability
+
+📊 SUMMARY TABLE
+============================================================
+    Measurement   ICC  Lower_CI  Upper_CI  P_Value        Interpretation
+ C2–C7 Lordosis 0.946     0.903     0.968    0.000 Excellent reliability
+      C2–C7 SVA 0.978     0.966     0.989    0.000 Excellent reliability
+       T1 Slope 0.891     0.825     0.941    0.000      Good reliability
+Lumbar Lordosis 0.964     0.945     0.982    0.000 Excellent reliability
+   Sacral Slope 0.954     0.917     0.973    0.000 Excellent reliability
+    Pelvic Tilt 0.985     0.975     0.992    0.000 Excellent reliability
+    PI (vector) 0.954     0.923     0.975    0.000 Excellent reliability
+            SVA 0.999     0.998     0.999    0.000 Excellent reliability
+
+⏱️  MEASUREMENT TIME ANALYSIS
+============================================================
+Converting time formats...
+Surgimap Time:      73.7 ± 17.2 seconds (n=24)
+SpineForge Time:    70.0 ± 12.3 seconds (n=24)
+Time Difference:    -3.7 seconds
+Time Reduction:     5.0%
+
+🔬 One-way ANOVA Results:
+   F-statistic = 0.691
+   p-value = 0.410191
+   Result: No significant difference (p ≥ 0.05)
+   Effect size (Cohen's d) = -0.245
+   Effect interpretation: Small to medium effect
+
+ 
+Important
+Figures are displayed in the Plots pane by default. To make them also appear inline in the console, you need to uncheck "Mute inline plotting" under the options menu of Plots.
+ ✓ Results exported to: SpineForge_vs_Surgimap_ICC_Analysis.xlsx
+
+✅ Analysis completed successfully!
+📊 Key Findings Summary:
+   • Excellent reliability: 7 measurements
+   • Good reliability: 1 measurements
+   • Moderate reliability: 0 measurements
+   • Poor reliability: 0 measurements
+   • Average time reduction: 5.0%
