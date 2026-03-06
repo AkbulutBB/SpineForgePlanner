@@ -4148,103 +4148,69 @@ class SpineForgePlanner:
             self.canvas.create_text(sx1+5, sy1-5, text=f"{level} Ø{diameter}x{length}mm", 
                                    fill='white', anchor="sw", font=('Arial', 9, 'bold'))
         
-        # Draw cages
-        for cage in self.cages:
-            corners = cage["corners"]
-            level = cage.get("level", "")
-            width = cage.get("width", "")
-            length = cage.get("length", "")
-            height = cage.get("height", "")
-            lordosis = cage.get("lordosis", "")
-            
-            # Draw the cage outline
-            polygon_points = []
-            for x, y in corners:
-                sx, sy = scaled((x, y))
-                polygon_points.extend([sx, sy])
-                
-            # Draw the cage polygon with semi-transparent fill
-            # Draw the cage polygon with semi-transparent fill (make it the bottom layer)
-            cage_poly = self.canvas.create_polygon(polygon_points, outline='orange', fill='orange', 
-                                                  stipple='gray50', width=2, tags=("cage_body",))
-            
-            # Calculate center for label
-            center_x = sum(p[0] for p in corners) / len(corners)
-            center_y = sum(p[1] for p in corners) / len(corners)
-            sc_x, sc_y = scaled((center_x, center_y))
-            
-            # Draw label elements with "label" tag so they don't interfere with clicking
-            bg_rect = self.canvas.create_rectangle(sc_x-50, sc_y-10, sc_x+130, sc_y+10, 
-                                                  fill='black', stipple='gray50', tags=("cage_label",))
-            text = self.canvas.create_text(sc_x, sc_y, 
-                                          text=f"{level} Cage {width}×{length}×{height}mm {lordosis}°", 
-                                          fill='yellow', anchor="center", tags=("cage_label",))
-            
-            # Lower labels below cage body so they don't interfere
-            self.canvas.tag_lower("cage_label", "cage_body")
-            
-        # Draw corpectomy cages
-        for cage in self.corpectomy_cages:
-            level = cage.get("level", "")
-            
-            if "center" in cage:  # Template style
-                center_x, center_y = scaled(cage["center"])
-                radius = cage.get("radius", 20) * self.zoom
-                height_px = cage.get("height_px", 50) * self.zoom
-                
-                # Draw cylindrical representation (top and bottom circles + connecting lines)
-                self.canvas.create_oval(center_x - radius, center_y - height_px/2 - radius/3,
-                                       center_x + radius, center_y - height_px/2 + radius/3,
-                                       outline='cyan', fill='cyan', stipple='gray50', width=2)
-                self.canvas.create_oval(center_x - radius, center_y + height_px/2 - radius/3,
-                                       center_x + radius, center_y + height_px/2 + radius/3,
-                                       outline='cyan', fill='cyan', stipple='gray50', width=2)
-                # Side lines
-                self.canvas.create_line(center_x - radius, center_y - height_px/2,
-                                       center_x - radius, center_y + height_px/2,
-                                       fill='cyan', width=2)
-                self.canvas.create_line(center_x + radius, center_y - height_px/2,
-                                       center_x + radius, center_y + height_px/2,
-                                       fill='cyan', width=2)
-                
-                # Label
-                diameter = cage.get("diameter", 22)
-                height = cage.get("height_mm", 50)
-                self.canvas.create_text(center_x, center_y, 
-                                       text=f"{level} Corpectomy\nØ{diameter}×{height}mm",
-                                       fill='white', anchor="center", font=('Arial', 9, 'bold'))
-            else:  # Draw style with top/bottom points
-                if "top" in cage and "bottom" in cage:
-                    top_x, top_y = scaled(cage["top"])
-                    bottom_x, bottom_y = scaled(cage["bottom"])
-                    
-                    # Calculate width based on diameter
-                    radius = (cage.get("diameter", 22) / self.pixel_spacing[0] / 2) * self.zoom
-                    
-                    # Draw cylindrical shape
-                    self.canvas.create_oval(top_x - radius, top_y - 5,
-                                           top_x + radius, top_y + 5,
-                                           outline='cyan', fill='cyan', stipple='gray50', width=2)
-                    self.canvas.create_oval(bottom_x - radius, bottom_y - 5,
-                                           bottom_x + radius, bottom_y + 5,
-                                           outline='cyan', fill='cyan', stipple='gray50', width=2)
-                    # Side lines
-                    self.canvas.create_line(top_x - radius, top_y,
-                                           bottom_x - radius, bottom_y,
-                                           fill='cyan', width=2)
-                    self.canvas.create_line(top_x + radius, top_y,
-                                           bottom_x + radius, bottom_y,
-                                           fill='cyan', width=2)
-                    
-                    # Label
-                    diameter = cage.get("diameter", 22)
-                    height = cage.get("height", 50)
-                    center_x = (top_x + bottom_x) / 2
-                    center_y = (top_y + bottom_y) / 2
-                    self.canvas.create_text(center_x, center_y,
-                                           text=f"{level} Corpectomy\nØ{diameter}×{height}mm",
-                                           fill='white', anchor="center", font=('Arial', 9, 'bold'))
-
+        # ── Draw committed (applied) cages ──────────────────────────────────────
+        import math as _math
+        for cage in self.applied_cages:
+            if not cage.get("applied"):
+                continue
+        
+            inf_ant  = cage["inf_ant"]
+            inf_post = cage["inf_post"]
+            sup_ant  = cage["sup_ant"]
+            sup_post = cage["sup_post"]
+            rot      = cage["rotation_deg"]
+            paste_y  = cage["paste_y"]
+            px, py   = inf_ant
+        
+            cos_a = _math.cos(_math.radians(rot))
+            sin_a = _math.sin(_math.radians(rot))
+        
+            def _rot_shift(pt, px=px, py=py, cos_a=cos_a, sin_a=sin_a, paste_y=paste_y):
+                dx, dy = pt[0] - px, pt[1] - py
+                rx = px + dx * cos_a - dy * sin_a
+                ry = py + dx * sin_a + dy * cos_a
+                return (rx, ry + paste_y)
+        
+            # Inferior corners are unchanged; superior corners are rotated + shifted
+            corners_transformed = [
+                inf_ant,
+                inf_post,
+                _rot_shift(sup_post),
+                _rot_shift(sup_ant),
+            ]
+        
+            poly_pts = []
+            for pt in corners_transformed:
+                sx, sy = scaled(pt)
+                poly_pts.extend([sx, sy])
+        
+            # Solid cyan outline — visually distinct from preview (orange/gold)
+            self.canvas.create_polygon(
+                poly_pts,
+                outline="#00FFFF", fill="#00FFFF",
+                stipple="gray25", width=2,
+                tags=("applied_cage",)
+            )
+        
+            # Label at cage centroid
+            cx = sum(p[0] for p in corners_transformed) / 4
+            cy = sum(p[1] for p in corners_transformed) / 4
+            scx, scy = scaled((cx, cy))
+            u = cage.get("unit", "mm")
+            label = (
+                f"{cage.get('level','?')}  "
+                f"{cage['ant_height']}{u}A/{cage['post_height']}{u}P  "
+                f"{cage['lordosis']}°"
+            )
+            self.canvas.create_rectangle(
+                scx - 60, scy - 9, scx + 60, scy + 9,
+                fill="black", stipple="gray50", tags=("applied_cage",)
+            )
+            self.canvas.create_text(
+                scx, scy, text=label,
+                fill="#00FFFF", font=("Arial", 8, "bold"),
+                anchor="center", tags=("applied_cage",)
+            )
     
     def draw_rod(self):
         if not self.rod_line:
