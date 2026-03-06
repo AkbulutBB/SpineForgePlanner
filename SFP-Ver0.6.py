@@ -703,9 +703,8 @@ class SpineForgePlanner:
     
     def _cage_rotation_pil(self):
         """
-        PIL rotation angle (CCW positive) so the top half rotates to follow
-        cage_handle_pos, pivoting around inf_ant.
-        Negated because PIL Y-axis is inverted relative to standard math coords.
+        Returns the rotation angle in degrees (CW-positive in screen/image space).
+        Negate before passing to PIL.Image.rotate(), which uses CCW-positive.
         """
         inf_ant, _, sup_ant, _ = self.cage_corners
         handle = self.cage_handle_pos
@@ -798,7 +797,7 @@ class SpineForgePlanner:
         # Crop top part (rows 0 → sup_cut_y) and rotate around inf_ant
         top_crop    = img.crop((0, 0, w, sup_cut_y))
         rotated_top = top_crop.rotate(
-            rot,
+            -rot,
             center=(inf_ant[0], inf_ant[1]),  # center may be below crop — PIL handles it
             expand=False,
             fillcolor=bg,
@@ -827,7 +826,7 @@ class SpineForgePlanner:
     
         top_crop    = img.crop((0, 0, w, sup_cut_y))
         rotated_top = top_crop.rotate(
-            rot, center=(inf_ant[0], inf_ant[1]),
+            -rot, center=(inf_ant[0], inf_ant[1]),
             expand=False, fillcolor=bg,
         )
     
@@ -836,8 +835,8 @@ class SpineForgePlanner:
         result.paste(img.crop((0, inf_cut_y, w, h)), (0, inf_cut_y))
     
         # Transform landmarks to match PIL's Y-down rotation
-        cos_a = math.cos(math.radians(rot))
-        sin_a = math.sin(math.radians(rot))
+        cos_a = math.cos(math.radians(-rot))
+        sin_a = math.sin(math.radians(-rot))
         px, py = inf_ant
         
         new_lm = {}
