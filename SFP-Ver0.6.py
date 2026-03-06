@@ -93,10 +93,19 @@ class SpineForgePlanner:
         # Implant state
         self.screws = []
         self.current_screw = None
-        self.cages = []
+        self.cages = []              # kept for legacy drawing code
+        self.corpectomy_cages = []   # kept for legacy drawing code
+        self.cage_points = []        # kept for legacy drawing code
+        self.current_cage_type = None
+
+        # New cage-simulation state  (mirrors osteotomy stack pattern)
+        self.applied_cages       = []    # committed cage transforms
+        self.current_cage_mode   = None  # "place_bottom" | "preview" | "confirm"
+        self.cage_bottom_pt      = None  # (x,y) inferior endplate – pivot
+        self.cage_top_orig       = None  # (x,y) superior endplate – locked
+        self.cage_top_current    = None  # (x,y) live cursor while in preview
+        self.cage_rotation_angle = 0.0
         
-        # Add these to your existing state variables
-        self.current_cage_type = None  # 'interbody_draw', 'interbody_template', etc.
         # Cage interaction state
         self.dragging_cage = None
         self.cage_drag_start = None
@@ -105,7 +114,12 @@ class SpineForgePlanner:
         self.selected_cage = None
         self.cage_handles = []
         
-        self.corpectomy_cages = []  # Separate list for corpectomy cages
+        self.applied_cages     = []   # committed cage transforms (the reversible stack)
+        self.cage_corners      = []   # [(inf_ant), (inf_post), (sup_ant), (sup_post)]
+        self.current_cage_mode = None # "place_inf_ant"|"place_inf_post"|
+                                      # "place_sup_ant"|"place_sup_post"|
+                                      # "adjust"|"confirm"
+        self.cage_handle_pos   = None # cursor position during adjust/confirm
         
         self.dragging_screw = None
         self.dragging_screw_part = None  # 'head' or 'tip'
@@ -235,18 +249,12 @@ class SpineForgePlanner:
         self.screw_tab = tk.Frame(self.implant_notebook, bg="lightgray")
         self.implant_notebook.add(self.screw_tab, text="Pedicle Screws")
         
-        # Interbody Cage sub-tab
-        self.interbody_tab = tk.Frame(self.implant_notebook, bg="lightgray")
-        self.implant_notebook.add(self.interbody_tab, text="Interbody Cage")
-        
-        # Corpectomy Cage sub-tab
-        self.corpectomy_tab = tk.Frame(self.implant_notebook, bg="lightgray")
-        self.implant_notebook.add(self.corpectomy_tab, text="Corpectomy Cage")
-        
+
         # Setup each sub-tab
+        self.cage_tab = tk.Frame(self.implant_notebook, bg="lightgray")
+        self.implant_notebook.add(self.cage_tab, text="Cage")
         self.setup_screw_tab()
-        self.setup_interbody_tab()
-        self.setup_corpectomy_tab()
+        self.setup_cage_tab()
         
         # Rod Export Tab
         self.rod_tab = tk.Frame(self.tab_control, bg="lightgray")
@@ -611,6 +619,449 @@ class SpineForgePlanner:
         # Set initial instruction
         self.info_label.config(text="Load a DICOM image to begin")
 
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    # C)  New / replacement methods  –  paste into SpineForgePlanner class
+    # ──────────────────────────────────────────────────────────────────────────────
+    
+        # ─────────────────────────────────────────────────────────────────────────
+        # UI
+        # ─────────────────────────────────────────────────────────────────────────
+
+        def setup_cage_tab(self):
+            """Unified cage simulation tab – replaces interbody + corpectomy tabs."""
+            outer = tk.Frame(self.cage_tab, bg="lightgray")
+            outer.pack(fill="both", expand=True, padx=2, pady=2)
+        
+            tk.Label(outer, text="Cage Simulation", bg="lightgray",
+                     font=("Arial", 10, "bold")).pack(anchor="w", padx=5, pady=(5, 0))
+        
+            tk.Label(outer, text="Level:", bg="lightgray").pack(anchor="w", padx=5, pady=(6, 0))
+            self.cage_level_var = tk.StringVar(value="L4-L5")
+            cb = ttk.Combobox(outer, textvariable=self.cage_level_var, width=14)
+            cb["values"] = (
+                "C3-C4", "C4-C5", "C5-C6", "C6-C7", "C7-T1",
+                "T12-L1", "L1-L2", "L2-L3", "L3-L4", "L4-L5", "L5-S1",
+                "L1 corp", "L2 corp", "L3 corp", "L4 corp", "L5 corp",
+            )
+            cb.pack(anchor="w", padx=5, pady=2, fill="x")
+        
+            instr = (
+                "1. Click 'Place Cage'\n"
+                "2. Inf. ANTERIOR corner (bottom-front)\n"
+                "3. Inf. POSTERIOR corner (bottom-back)\n"
+                "4. Sup. ANTERIOR corner (top-front)\n"
+                "5. Sup. POSTERIOR corner (top-back)\n"
+                "6. Move cursor: disc removed live\n"
+                "   Y = height  |  X = lordosis\n"
+                "7. Click to lock → 'Apply Cage'"
+            )
+            tk.Label(outer, text=instr, bg="lightgray", justify="left",
+                     font=("Arial", 8)).pack(anchor="w", padx=10, pady=5)
+        
+            rf = tk.Frame(outer, bg="white", relief="sunken", bd=1)
+            rf.pack(fill="x", padx=5, pady=3)
+            tk.Label(rf, text="Live measurements:", bg="white",
+                     font=("Arial", 8, "bold")).pack(anchor="w", padx=5, pady=(3, 0))
+            self.cage_ant_h_label  = tk.Label(rf, text="Ant height:  —", bg="white", font=("Arial", 9))
+            self.cage_ant_h_label.pack(anchor="w", padx=10)
+            self.cage_post_h_label = tk.Label(rf, text="Post height: —", bg="white", font=("Arial", 9))
+            self.cage_post_h_label.pack(anchor="w", padx=10)
+            self.cage_lord_label   = tk.Label(rf, text="Lordosis:    —", bg="white", font=("Arial", 9))
+            self.cage_lord_label.pack(anchor="w", padx=10, pady=(0, 4))
+        
+            bf = tk.Frame(outer, bg="lightgray")
+            bf.pack(fill="x", padx=5, pady=6)
+            self.place_cage_btn = tk.Button(bf, text="Place Cage",
+                                            command=self.start_cage_placement)
+            self.place_cage_btn.pack(fill="x", pady=2)
+            self.apply_cage_btn = tk.Button(bf, text="Apply Cage",
+                                            command=self.apply_cage, state="disabled")
+            self.apply_cage_btn.pack(fill="x", pady=2)
+            self.reset_cage_btn = tk.Button(bf, text="Reset All Cages",
+                                            command=self.reset_all_cages, state="disabled")
+            self.reset_cage_btn.pack(fill="x", pady=2)
+        
+        def start_cage_placement(self):
+            """Begin 4-point cage placement workflow."""
+            if not self.image:
+                self.show_status("Load an image first.", "error")
+                return
+            self.cage_corners      = []
+            self.cage_handle_pos   = None
+            self.current_cage_mode = "place_inf_ant"
+            self.apply_cage_btn.config(state="disabled")
+            self.show_status(
+                f"Cage at {self.cage_level_var.get()} | Step 1/4: Click INFERIOR ANTERIOR corner",
+                "info", persistent=True
+            )
+        
+        # ─────────────────────────────────────────────────────────────────────────
+        # Geometry helpers
+        # ─────────────────────────────────────────────────────────────────────────
+        
+        def _cage_cut_ys(self):
+            """(sup_cut_y, inf_cut_y) from current cage_corners."""
+            ia, ip, sa, sp = self.cage_corners
+            return int((sa[1] + sp[1]) / 2), int((ia[1] + ip[1]) / 2)
+        
+        def _cage_rotation_pil(self):
+            """
+            PIL rotation angle (CCW positive) so the top half rotates to follow
+            cage_handle_pos, pivoting around inf_ant.
+            """
+            inf_ant, _, sup_ant, _ = self.cage_corners
+            handle = self.cage_handle_pos
+            a_orig = math.atan2(sup_ant[1] - inf_ant[1], sup_ant[0] - inf_ant[0])
+            a_new  = math.atan2(handle[1]  - inf_ant[1], handle[0]  - inf_ant[0])
+            return math.degrees(a_new - a_orig)
+        
+        def _cage_paste_y(self, inf_cut_y, sup_cut_y):
+            """
+            Vertical offset at which to paste the rotated top crop so that the
+            cage height matches the handle's Y position.
+            """
+            cage_height_px = max(0, inf_cut_y - int(self.cage_handle_pos[1]))
+            return (inf_cut_y - cage_height_px) - sup_cut_y
+        
+        def _get_cage_dimensions(self):
+            """Return dict with ant_height, post_height, lordosis, unit."""
+            if len(self.cage_corners) < 4 or self.cage_handle_pos is None:
+                return {"ant_height": 0, "post_height": 0, "lordosis": 0, "unit": ""}
+        
+            inf_ant, inf_post, sup_ant, sup_post = self.cage_corners
+            rot   = self._cage_rotation_pil()
+            cos_a = math.cos(math.radians(rot))
+            sin_a = math.sin(math.radians(rot))
+            px, py = inf_ant
+        
+            def rot_pt(pt):
+                dx, dy = pt[0] - px, pt[1] - py
+                return (px + dx * cos_a - dy * sin_a,
+                        py + dx * sin_a + dy * cos_a)
+        
+            sup_cut_y, inf_cut_y = self._cage_cut_ys()
+            paste_y = self._cage_paste_y(inf_cut_y, sup_cut_y)
+        
+            # Rotated superior corners (in rotated_top coords) + vertical paste offset
+            new_sa = rot_pt(sup_ant)
+            new_sp = rot_pt(sup_post)
+            new_sa = (new_sa[0], new_sa[1] + paste_y)
+            new_sp = (new_sp[0], new_sp[1] + paste_y)
+        
+            ps = self.pixel_spacing[1] if self.is_calibrated else 1.0
+            ant_h  = round(abs(inf_ant[1]  - new_sa[1]) * ps, 1)
+            post_h = round(abs(inf_post[1] - new_sp[1]) * ps, 1)
+        
+            inf_v  = (inf_post[0] - inf_ant[0], inf_post[1] - inf_ant[1])
+            sup_v  = (new_sp[0]   - new_sa[0],  new_sp[1]   - new_sa[1])
+            m1, m2 = math.hypot(*inf_v), math.hypot(*sup_v)
+            if m1 > 0 and m2 > 0:
+                cos_ang  = max(-1, min(1, (inf_v[0]*sup_v[0] + inf_v[1]*sup_v[1]) / (m1*m2)))
+                lordosis = round(math.degrees(math.acos(cos_ang)), 1)
+            else:
+                lordosis = 0.0
+        
+            unit = " mm" if self.is_calibrated else " px"
+            return {"ant_height": ant_h, "post_height": post_h,
+                    "lordosis": lordosis, "unit": unit}
+        
+        def _update_cage_readouts(self):
+            """Refresh the three sidebar labels."""
+            if not hasattr(self, "cage_ant_h_label"):
+                return
+            d = self._get_cage_dimensions()
+            u = d["unit"]
+            self.cage_ant_h_label.config(text=f"Ant height:  {d['ant_height']}{u}")
+            self.cage_post_h_label.config(text=f"Post height: {d['post_height']}{u}")
+            self.cage_lord_label.config(text=f"Lordosis:    {d['lordosis']}°")
+        
+        # ─────────────────────────────────────────────────────────────────────────
+        # Image operations
+        # ─────────────────────────────────────────────────────────────────────────
+        
+        def get_cage_preview_image(self):
+            """
+            Return a PIL image with the disc region removed and the top half
+            repositioned according to cage_handle_pos.  Does NOT modify self.image.
+            """
+            from PIL import ImageDraw
+            if len(self.cage_corners) < 4 or self.cage_handle_pos is None:
+                return self.image
+        
+            img    = self.image
+            bg     = int(self.get_background_color(np.array(img)))
+            w, h   = img.size
+            inf_ant = self.cage_corners[0]
+        
+            sup_cut_y, inf_cut_y = self._cage_cut_ys()
+            rot     = self._cage_rotation_pil()
+            paste_y = self._cage_paste_y(inf_cut_y, sup_cut_y)
+        
+            # Crop top part (rows 0 → sup_cut_y) and rotate around inf_ant
+            top_crop    = img.crop((0, 0, w, sup_cut_y))
+            rotated_top = top_crop.rotate(
+                rot,
+                center=(inf_ant[0], inf_ant[1]),  # center may be below crop — PIL handles it
+                expand=False,
+                fillcolor=bg,
+            )
+        
+            # Compose: rotated top at paste_y, disc region blank, bottom unchanged
+            result = Image.new(img.mode, (w, h), bg)
+            result.paste(rotated_top, (0, paste_y))
+            result.paste(img.crop((0, inf_cut_y, w, h)), (0, inf_cut_y))
+            return result
+        
+        def apply_single_cage_transform(self, img, landmarks, cage_data):
+            """
+            Permanently apply one cage transform to img and landmarks.
+            Returns (new_img, new_landmarks).
+            """
+            from PIL import ImageDraw
+            inf_ant   = cage_data["inf_ant"]
+            sup_cut_y = cage_data["sup_cut_y"]
+            inf_cut_y = cage_data["inf_cut_y"]
+            rot       = cage_data["rotation_deg"]
+            paste_y   = cage_data["paste_y"]
+        
+            bg   = int(self.get_background_color(np.array(img)))
+            w, h = img.size
+        
+            top_crop    = img.crop((0, 0, w, sup_cut_y))
+            rotated_top = top_crop.rotate(
+                rot, center=(inf_ant[0], inf_ant[1]),
+                expand=False, fillcolor=bg,
+            )
+        
+            result = Image.new(img.mode, (w, h), bg)
+            result.paste(rotated_top, (0, paste_y))
+            result.paste(img.crop((0, inf_cut_y, w, h)), (0, inf_cut_y))
+        
+            # Transform landmarks
+            cos_a = math.cos(math.radians(rot))
+            sin_a = math.sin(math.radians(rot))
+            px, py = inf_ant
+        
+            new_lm = {}
+            for name, (lx, ly) in landmarks.items():
+                if ly < sup_cut_y:               # top segment: rotate + vertical shift
+                    dx, dy  = lx - px, ly - py
+                    rx = px + dx * cos_a - dy * sin_a
+                    ry = py + dx * sin_a + dy * cos_a
+                    new_lm[name] = (rx, ry + paste_y)
+                else:                            # bottom: unchanged
+                    new_lm[name] = (lx, ly)
+            return result, new_lm
+        
+        def _apply_all_transforms(self):
+            """Reapply all osteotomies then all cages from the original image."""
+            if not self.original_image:
+                return
+        
+            if self.osteotomies:
+                self.apply_all_osteotomies()     # resets to original then re-runs each
+            else:
+                self.image = self.original_image.copy()
+                if hasattr(self, "original_landmarks_backup") and self.original_landmarks_backup:
+                    self.landmarks = dict(self.original_landmarks_backup)
+        
+            for cage in self.applied_cages:
+                if cage.get("applied"):
+                    self.image, self.landmarks = self.apply_single_cage_transform(
+                        self.image, self.landmarks, cage
+                    )
+        
+        # ─────────────────────────────────────────────────────────────────────────
+        # Canvas overlay
+        # ─────────────────────────────────────────────────────────────────────────
+        
+        def _draw_cage_indicators(self):
+            """Draw corner markers, endplate lines, and cage outline on canvas."""
+            self.canvas.delete("cage_indicator")
+        
+            if not self.cage_corners:
+                return
+        
+            def sc(pt):
+                return (pt[0] * self.zoom + self.offset[0],
+                        pt[1] * self.zoom + self.offset[1])
+        
+            labels    = ["IA", "IP", "SA", "SP"]
+            colors    = ["#00FF88", "#00FF88", "#FFFF66", "#FFFF66"]
+            hw        = int(16 * self.zoom)  # endplate tick half-width, zoom-aware
+        
+            # Draw placed corners
+            for i, pt in enumerate(self.cage_corners):
+                sx, sy = sc(pt)
+                self.canvas.create_oval(sx-5, sy-5, sx+5, sy+5,
+                                        fill=colors[i], outline=colors[i],
+                                        tags="cage_indicator")
+                self.canvas.create_text(sx+8, sy, text=labels[i], fill=colors[i],
+                                        font=("Arial", 8, "bold"), anchor="w",
+                                        tags="cage_indicator")
+        
+            # Draw inferior endplate line once both inferior corners are placed
+            if len(self.cage_corners) >= 2:
+                x1, y1 = sc(self.cage_corners[0])
+                x2, y2 = sc(self.cage_corners[1])
+                self.canvas.create_line(x1, y1, x2, y2,
+                                        fill="#00FF88", width=2, tags="cage_indicator")
+        
+            # Draw superior endplate line once all 4 are placed
+            if len(self.cage_corners) == 4:
+                x1, y1 = sc(self.cage_corners[2])
+                x2, y2 = sc(self.cage_corners[3])
+                self.canvas.create_line(x1, y1, x2, y2,
+                                        fill="#FFFF66", width=2, tags="cage_indicator")
+        
+            # Draw live cage parallelogram during adjust / confirm
+            if (len(self.cage_corners) == 4
+                    and self.cage_handle_pos is not None
+                    and self.current_cage_mode in ("adjust", "confirm")):
+        
+                inf_ant, inf_post, sup_ant, sup_post = self.cage_corners
+                rot   = self._cage_rotation_pil()
+                cos_a = math.cos(math.radians(rot))
+                sin_a = math.sin(math.radians(rot))
+                px, py = inf_ant
+        
+                sup_cut_y, inf_cut_y = self._cage_cut_ys()
+                paste_y = self._cage_paste_y(inf_cut_y, sup_cut_y)
+        
+                def rot_and_shift(pt):
+                    dx, dy = pt[0] - px, pt[1] - py
+                    rx = px + dx * cos_a - dy * sin_a
+                    ry = py + dx * sin_a + dy * cos_a
+                    return sc((rx, ry + paste_y))
+        
+                new_sa = rot_and_shift(sup_ant)
+                new_sp = rot_and_shift(sup_post)
+                ia_sc  = sc(inf_ant)
+                ip_sc  = sc(inf_post)
+        
+                # Cage body outline (dashed orange parallelogram)
+                outline_color = "#FFD700" if self.current_cage_mode == "confirm" else "#FF9900"
+                self.canvas.create_polygon(
+                    ia_sc[0], ia_sc[1],
+                    ip_sc[0], ip_sc[1],
+                    new_sp[0], new_sp[1],
+                    new_sa[0], new_sa[1],
+                    outline=outline_color, fill="", width=2,
+                    dash=(6, 4), tags="cage_indicator"
+                )
+                # Anterior column axis
+                self.canvas.create_line(ia_sc[0], ia_sc[1], new_sa[0], new_sa[1],
+                                        fill=outline_color, width=1,
+                                        dash=(3, 6), tags="cage_indicator")
+        
+                # Dimension label at cage centre
+                cx = (ia_sc[0] + ip_sc[0] + new_sa[0] + new_sp[0]) / 4
+                cy = (ia_sc[1] + ip_sc[1] + new_sa[1] + new_sp[1]) / 4
+                d  = self._get_cage_dimensions()
+                u  = d["unit"]
+                self.canvas.create_text(
+                    cx, cy,
+                    text=f"{d['ant_height']}{u}A / {d['post_height']}{u}P\n{d['lordosis']}°",
+                    fill=outline_color, font=("Arial", 9, "bold"),
+                    anchor="center", tags="cage_indicator"
+                )
+        
+        # ─────────────────────────────────────────────────────────────────────────
+        # Commit / delete / reset
+        # ─────────────────────────────────────────────────────────────────────────
+        
+        def apply_cage(self):
+            """Commit the current cage onto the applied_cages stack."""
+            if (self.current_cage_mode not in ("confirm",)
+                    or len(self.cage_corners) != 4
+                    or self.cage_handle_pos is None):
+                self.show_status("Complete cage placement first.", "error")
+                return
+        
+            sup_cut_y, inf_cut_y = self._cage_cut_ys()
+            rot     = self._cage_rotation_pil()
+            paste_y = self._cage_paste_y(inf_cut_y, sup_cut_y)
+            dims    = self._get_cage_dimensions()
+            inf_ant, inf_post, sup_ant, sup_post = self.cage_corners
+        
+            cage_data = {
+                "inf_ant":      inf_ant,
+                "inf_post":     inf_post,
+                "sup_ant":      sup_ant,
+                "sup_post":     sup_post,
+                "sup_cut_y":    sup_cut_y,
+                "inf_cut_y":    inf_cut_y,
+                "rotation_deg": rot,
+                "paste_y":      paste_y,
+                "handle_final": self.cage_handle_pos,
+                "ant_height":   dims["ant_height"],
+                "post_height":  dims["post_height"],
+                "lordosis":     dims["lordosis"],
+                "unit":         dims["unit"],
+                "level":        self.cage_level_var.get(),
+                "applied":      True,
+            }
+            self.applied_cages.append(cage_data)
+        
+            # Ensure original landmark backup exists
+            if not hasattr(self, "original_landmarks_backup") or not self.original_landmarks_backup:
+                self.original_landmarks_backup = dict(self.landmarks)
+        
+            self._apply_all_transforms()
+        
+            # Reset placement state
+            self.current_cage_mode = None
+            self.cage_corners      = []
+            self.cage_handle_pos   = None
+            self.end_persistent_instruction()
+            self.apply_cage_btn.config(state="disabled")
+            self.reset_cage_btn.config(state="normal")
+        
+            self.display_image()
+            self.update_measurements(estimated=True)
+            self.update_implant_summary()
+        
+            u = dims["unit"]
+            self.show_status(
+                f"Cage applied at {cage_data['level']}: "
+                f"{dims['ant_height']}{u} ant / {dims['post_height']}{u} post / {dims['lordosis']}°",
+                "success"
+            )
+        
+        def delete_applied_cage(self, index):
+            """Pop one cage from the stack and reapply the rest."""
+            if 0 <= index < len(self.applied_cages):
+                removed = self.applied_cages.pop(index)
+                self._apply_all_transforms()
+                self.display_image()
+                self.update_measurements(estimated=True)
+                self.update_implant_summary()
+                self.show_status(f"Cage at {removed['level']} removed.", "info")
+                if not self.applied_cages:
+                    self.reset_cage_btn.config(state="disabled")
+        
+        def reset_all_cages(self):
+            """Remove all cage transforms and return to post-osteotomy state."""
+            self.applied_cages     = []
+            self.current_cage_mode = None
+            self.cage_corners      = []
+            self.cage_handle_pos   = None
+        
+            self.apply_cage_btn.config(state="disabled")
+            self.reset_cage_btn.config(state="disabled")
+            self.place_cage_btn.config(state="normal")
+        
+            if self.osteotomies:
+                self.apply_all_osteotomies()
+            else:
+                self.reset_all_osteotomies()
+        
+            self.display_image()
+            self.update_measurements()
+            self.update_implant_summary()
+            self.show_status("All cage transforms reset.", "info")
+        
     
     def flip_image_horizontal(self):
         """Flip the image horizontally (left-right mirror)"""
@@ -780,6 +1231,16 @@ class SpineForgePlanner:
     
     def on_mouse_motion(self, event):
         """Show tooltips when hovering over interactive elements"""
+        # ── Cage live preview ─────────────────────────────────────────────────
+        if self.current_cage_mode == "adjust" and len(self.cage_corners) == 4:
+            self.cage_handle_pos = (
+                (event.x - self.offset[0]) / self.zoom,
+                (event.y - self.offset[1]) / self.zoom,
+            )
+            self._update_cage_readouts()
+            self.display_image()
+            return
+
         x = (event.x - self.offset[0]) / self.zoom
         y = (event.y - self.offset[1]) / self.zoom
         
@@ -1215,16 +1676,54 @@ class SpineForgePlanner:
     def display_image(self):
         if self.image is None:
             return
-        # Make sure implant summary is up to date
         if hasattr(self, 'implant_list_frame'):
             self.update_implant_summary()
         
         try:
-            resized = self.image.resize((int(self.image.width * self.zoom), int(self.image.height * self.zoom)))
+            # Use live composite image during cage preview, otherwise self.image
+            if self.current_cage_mode == "preview" and self.cage_bottom_pt and self.cage_top_current:
+                img_to_show = self.get_cage_preview_image()
+            else:
+                img_to_show = self.image
+
+            if (self.current_cage_mode in ("adjust", "confirm")
+                    and len(self.cage_corners) == 4
+                    and self.cage_handle_pos is not None):
+                img_to_show = self.get_cage_preview_image()
+            else:
+                img_to_show = self.image
+
+            resized = img_to_show.resize(
+                (int(img_to_show.width * self.zoom), int(img_to_show.height * self.zoom))
+            )
+            
             self.tk_image = ImageTk.PhotoImage(resized)
             self.canvas.delete("all")
             self.canvas.create_image(self.offset[0], self.offset[1], anchor="nw", image=self.tk_image)
-            self.draw_calibration_line()  # Add this line here
+
+            # Draw cage placement indicators (INF/SUP lines + dashed outline)
+            self.canvas.delete("cage_indicator")
+            if self.cage_bottom_pt:
+                def sc(pt):
+                    return (pt[0] * self.zoom + self.offset[0],
+                            pt[1] * self.zoom + self.offset[1])
+                bx, by = sc(self.cage_bottom_pt)
+                hw = 18
+                self.canvas.create_line(bx-hw, by, bx+hw, by, fill="#00FF88", width=3, tags="cage_indicator")
+                self.canvas.create_oval(bx-5, by-5, bx+5, by+5, fill="#00FF88", outline="#00FF88", tags="cage_indicator")
+                self.canvas.create_text(bx+hw+6, by, text="INF", fill="#00FF88", font=("Arial", 8, "bold"), anchor="w", tags="cage_indicator")
+                if self.cage_top_current:
+                    tx, ty = sc(self.cage_top_current)
+                    sup_color = "#FFD700" if self.current_cage_mode == "confirm" else "#FFFF66"
+                    self.canvas.create_line(tx-hw, ty, tx+hw, ty, fill=sup_color, width=3, tags="cage_indicator")
+                    self.canvas.create_oval(tx-5, ty-5, tx+5, ty+5, fill=sup_color, outline=sup_color, tags="cage_indicator")
+                    self.canvas.create_text(tx+hw+6, ty, text="SUP", fill=sup_color, font=("Arial", 8, "bold"), anchor="w", tags="cage_indicator")
+                    self.canvas.create_polygon(bx-hw, by, bx+hw, by, tx+hw, ty, tx-hw, ty,
+                                               outline="#FF9900", fill="", width=2, dash=(6, 4), tags="cage_indicator")
+                    self.canvas.create_line(bx, by, tx, ty, fill="#FF9900", width=1, dash=(3, 6), tags="cage_indicator")
+
+            self._draw_cage_indicators()            
+            self.draw_calibration_line()
             self.draw_landmarks()
             self.draw_implants()
             self.draw_osteotomy()
@@ -1338,6 +1837,61 @@ class SpineForgePlanner:
                 
                 # Update implant summary
                 self.update_implant_summary()
+                
+        elif self.current_cage_mode is not None:
+            x = int((event.x - self.offset[0]) / self.zoom)
+            y = int((event.y - self.offset[1]) / self.zoom)
+
+            if self.current_cage_mode in (
+                    "place_inf_ant", "place_inf_post",
+                    "place_sup_ant",  "place_sup_post"):
+
+                self.cage_corners.append((x, y))
+
+                if self.current_cage_mode == "place_inf_ant":
+                    self.current_cage_mode = "place_inf_post"
+                    self.show_status("Step 2/4: Click INFERIOR POSTERIOR corner", "info", persistent=True)
+
+                elif self.current_cage_mode == "place_inf_post":
+                    self.current_cage_mode = "place_sup_ant"
+                    self.show_status("Step 3/4: Click SUPERIOR ANTERIOR corner", "info", persistent=True)
+
+                elif self.current_cage_mode == "place_sup_ant":
+                    self.current_cage_mode = "place_sup_post"
+                    self.show_status("Step 4/4: Click SUPERIOR POSTERIOR corner", "info", persistent=True)
+
+                elif self.current_cage_mode == "place_sup_post":
+                    # All 4 corners placed → enter live adjustment
+                    self.current_cage_mode = "adjust"
+                    self.cage_handle_pos   = self.cage_corners[2]  # start at sup_ant
+                    self.end_persistent_instruction()
+                    self.show_status(
+                        "Move cursor to adjust height & lordosis — click to lock",
+                        "info", persistent=True
+                    )
+
+                self.display_image()
+
+            elif self.current_cage_mode == "adjust":
+                # Lock current position
+                self.current_cage_mode = "confirm"
+                self.end_persistent_instruction()
+                self._update_cage_readouts()
+                dims = self._get_cage_dimensions()
+                u    = dims["unit"]
+                self.show_status(
+                    f"Cage locked — {dims['ant_height']}{u} ant / "
+                    f"{dims['post_height']}{u} post / {dims['lordosis']}° — click Apply",
+                    "success"
+                )
+                self.apply_cage_btn.config(state="normal")
+                self.display_image()
+
+            elif self.current_cage_mode == "confirm":
+                # Re-click in confirm → go back to adjust for fine-tuning
+                self.current_cage_mode = "adjust"
+                self.show_status("Move cursor to re-adjust — click to lock again", "info", persistent=True)
+                self.display_image()
                 
         elif self.current_osteotomy == "placing_wedge":
             x = int((event.x - self.offset[0]) / self.zoom)
@@ -2485,52 +3039,32 @@ class SpineForgePlanner:
                         bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
         
         # Add cages to summary
-        if self.cages:
-            tk.Label(scrollable_frame, text="Cages:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", pady=(10,0))
-            
-            # Sort cages from cranial to caudal
-            sorted_cages = sorted(enumerate(self.cages), 
-                                  key=lambda x: vertebral_level_order(x[1].get("level", "")))
-            
-            for i, (original_idx, cage) in enumerate(sorted_cages):
-                level = cage.get("level", "")
-                width = cage.get("width", "")
-                length = cage.get("length", "")
-                height = cage.get("height", "")
-                lordosis = cage.get("lordosis", "")
+        if self.applied_cages:
+            tk.Label(scrollable_frame, text="Cages:", bg="white",
+                     font=("Arial", 9, "bold")).pack(anchor="w", pady=(10, 0))
+            sorted_cages = sorted(
+                enumerate(self.applied_cages),
+                key=lambda x: vertebral_level_order(x[1].get("level", ""))
+            )
+            for i, (orig_idx, cage) in enumerate(sorted_cages):
+                level     = cage.get("level", "")
+                ant_h     = cage.get("ant_height", "—")
+                post_h    = cage.get("post_height", "—")
+                lordosis  = cage.get("lordosis", "—")
+                unit      = cage.get("unit", "")
+                row = tk.Frame(scrollable_frame, bg="white")
+                row.pack(fill="x", pady=1)
+                tk.Label(
+                    row,
+                    text=f"{i+1}. {level}  |  {ant_h}{unit} ant / {post_h}{unit} post  |  {lordosis}°",
+                    bg="white"
+                ).pack(side="left")
+                tk.Button(
+                    row, text="×",
+                    command=lambda idx=orig_idx: self.delete_applied_cage(idx),
+                    bg="white", fg="red", bd=0, font=("Arial", 9, "bold")
+                ).pack(side="right")
                 
-                cage_frame = tk.Frame(scrollable_frame, bg="white")
-                cage_frame.pack(fill="x", pady=1)
-                
-                tk.Label(cage_frame, text=f"{i+1}. {level} - {width}×{length}×{height}mm {lordosis}°", 
-                       bg="white").pack(side="left")
-                
-                # Add delete button
-                tk.Button(cage_frame, text="×", command=lambda idx=original_idx: self.delete_implant("cage", idx),
-                        bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
-        
-        # Add corpectomy cages to summary
-        if self.corpectomy_cages:
-            tk.Label(scrollable_frame, text="Corpectomy Cages:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", pady=(10,0))
-            
-            sorted_corp_cages = sorted(enumerate(self.corpectomy_cages), 
-                                      key=lambda x: vertebral_level_order(x[1].get("level", "")))
-            
-            for i, (original_idx, cage) in enumerate(sorted_corp_cages):
-                level = cage.get("level", "")
-                diameter = cage.get("diameter", "")
-                height = cage.get("height_mm", cage.get("height", ""))
-                
-                cage_frame = tk.Frame(scrollable_frame, bg="white")
-                cage_frame.pack(fill="x", pady=1)
-                
-                tk.Label(cage_frame, text=f"{i+1}. {level} - Ø{diameter}×{height}mm", 
-                       bg="white").pack(side="left")
-                
-                # Add delete button
-                tk.Button(cage_frame, text="×", command=lambda idx=original_idx: self.delete_implant("corpectomy", idx),
-                        bg="white", fg="red", bd=0, font=("Arial", 9, "bold")).pack(side="right")
-        
             # Add osteotomies to summary
         if self.osteotomies:
             tk.Label(scrollable_frame, text="Osteotomies:", bg="white", font=("Arial", 9, "bold")).pack(anchor="w", pady=(10,0))
