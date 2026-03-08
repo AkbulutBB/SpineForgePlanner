@@ -3821,12 +3821,17 @@ class SpineForgePlanner:
                 removed = self.osteotomies.pop(index)
                 self.show_status(f"Osteotomy at {removed['level']} deleted.", "info")
                 
-                # Reapply all remaining osteotomies
+                # Reapply osteotomies then cages
                 if self.osteotomies:
-                    self.apply_all_osteotomies()
+                    self._apply_all_transforms()
                 else:
-                    # No osteotomies left, restore original
                     self.reset_all_osteotomies()
+                    # Reapply cages on top of clean state
+                    for cage in self.applied_cages:
+                        if cage.get("applied"):
+                            self.image, self.landmarks = self.apply_single_cage_transform(
+                                self.image, self.landmarks, cage
+                            )
                 
                 self.update_implant_summary()
                 self.display_image()
@@ -3902,7 +3907,7 @@ class SpineForgePlanner:
         self.current_osteotomy = None
         
         # Apply ALL osteotomies fresh
-        self.apply_all_osteotomies()
+        self._apply_all_transforms()
         
         # Reset button states
         self.apply_osteotomy_button.config(state="disabled")
