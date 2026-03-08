@@ -4266,11 +4266,18 @@ class SpineForgePlanner:
                     sx2, sy2 = scaled((x2, y2))
                     self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=float(diameter))
             
-            # Add text with rod info
+            # Add text with rod info (diameter + arc length)
+            length_mm = self.rod_line.get("length_mm", None)
+            length_str = f" × {length_mm:.0f}mm" if length_mm is not None else ""
             x, y = points[0]
             sx, sy = scaled((x, y))
-            self.canvas.create_text(sx, sy-10, text=f"{side} Rod Ø{diameter}mm", fill=color, anchor="sw")
-    
+            self.canvas.create_text(
+                sx, sy - 10,
+                text=f"{side} Rod Ø{diameter}mm{length_str}",
+                fill=color, anchor="sw", font=('Arial', 9, 'bold')
+            )
+            
+        
     def calculate_angle(self, p1, p2):
         dx = (p2[0] - p1[0]) * self.pixel_spacing[1]
         dy = (p2[1] - p1[1]) * self.pixel_spacing[0]
@@ -4439,16 +4446,38 @@ class SpineForgePlanner:
         # Extract just the points in the sorted order
         rod_points = [point for point, _ in screw_heads]
         
+        # Calculate arc length of rod in mm using spline (or linear fallback)
+        rod_length_mm = 0.0
+        pts = np.array(rod_points)
+        unique_pts = len(np.unique(pts, axis=0))
+        if unique_pts >= 3:
+            tck, _ = splprep([pts[:, 0], pts[:, 1]], s=0, k=min(unique_pts - 1, 3))
+            u_dense = np.linspace(0, 1, 500)
+            sampled = np.array(splev(u_dense, tck)).T
+        else:
+            sampled = pts
+        diffs = np.diff(sampled, axis=0)
+        # Convert pixel distances to mm using pixel_spacing
+        segment_lengths = np.sqrt(
+            (diffs[:, 0] * self.pixel_spacing[1]) ** 2 +
+            (diffs[:, 1] * self.pixel_spacing[0]) ** 2
+        )
+        rod_length_mm = float(np.sum(segment_lengths))
+
         # Create the rod line data
         self.rod_line = {
             "points": rod_points,
             "side": self.rod_side.get(),
-            "diameter": self.rod_diameter.get()
+            "diameter": self.rod_diameter.get(),
+            "length_mm": rod_length_mm
         }
-        
+
         # Display the rod
         self.display_image()
-        self.show_status(f"Rod generated: {self.rod_side.get()} side, {self.rod_diameter.get()}mm diameter", "success")
+        self.show_status(
+            f"Rod generated: {self.rod_side.get()} side, Ø{self.rod_diameter.get()}mm × {rod_length_mm:.0f}mm",
+            "success"
+        )
         
     def export_rod_as_stl(self):
         """Export the rod model as STL for 3D printing"""
@@ -4503,10 +4532,14 @@ class SpineForgePlanner:
                             new_points[i] = (1 - weight) * points[idx_low] + weight * points[idx_high]
         
                 
+                # Convert pixel coordinates to real-world mm before building mesh
+                new_points_mm = new_points.copy()
+                new_points_mm[:, 0] *= self.pixel_spacing[1]  # x → mm
+                new_points_mm[:, 1] *= self.pixel_spacing[0]  # y → mm
+
                 # Create a 3D representation (add z-coordinate)
-                # Here we're creating a simple 2.5D model since we only have a 2D image
-                z_coord = np.zeros(len(new_points))
-                points_3d = np.column_stack((new_points, z_coord))
+                z_coord = np.zeros(len(new_points_mm))
+                points_3d = np.column_stack((new_points_mm, z_coord))
                 
                 # Create a cylinder mesh along the spline
                 # For simplicity, we'll create a rough approximation with triangles
