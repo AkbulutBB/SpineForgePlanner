@@ -3464,7 +3464,8 @@ class SpineForgePlanner:
             
             # Calculate PI as angle between these vectors
             cos_pi = np.clip(np.dot(sacral_perp, hip_vec), -1.0, 1.0)
-            pi_angle = math.degrees(math.acos(cos_pi))
+            pi_angle = math.degrees(math.acos(abs(cos_pi)))
+            pi_angle = min(pi_angle, 180 - pi_angle)
             
             # Store midpoint for PT label
             pt_x, pt_y = (bicoxo_x + s1_mid_x) / 2, (bicoxo_y + s1_mid_y) / 2
