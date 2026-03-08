@@ -38,7 +38,7 @@ else:  # Windows/Linux
 class SpineForgePlanner:
     def __init__(self, root):
         self.root = root
-        self.root.title("SpineForge Planner")
+        self.root.title("SpineForge Planner - Ver 0.6")
         
         # Initialize core state before UI creation
         self.image = None
