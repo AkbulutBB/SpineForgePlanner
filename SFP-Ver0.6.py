@@ -1040,6 +1040,182 @@ class SpineForgePlanner:
             if not self.applied_cages:
                 self.reset_cage_btn.config(state="disabled")
     
+    def edit_applied_cage(self, index):
+        """Open a dialog to edit an applied cage's anterior/posterior height and level."""
+        if index < 0 or index >= len(self.applied_cages):
+            return
+    
+        cage     = self.applied_cages[index]
+        unit_lbl = cage.get("unit", " mm").strip() or "mm"
+    
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"Edit Cage — {cage.get('level', '')}")
+        dlg.geometry("340x260")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.focus_set()
+    
+        tk.Label(dlg, text=f"Editing cage at: {cage.get('level', '')}",
+                 font=("Arial", 10, "bold")).pack(pady=(12, 6))
+    
+        form = tk.Frame(dlg)
+        form.pack(padx=20, fill="x")
+    
+        def make_row(parent, label_text, var):
+            f = tk.Frame(parent)
+            f.pack(fill="x", pady=3)
+            tk.Label(f, text=label_text, width=22, anchor="w").pack(side="left")
+            tk.Entry(f, textvariable=var, width=10).pack(side="left")
+    
+        lev_var  = tk.StringVar(value=cage.get("level", ""))
+        ant_var  = tk.StringVar(value=str(cage.get("ant_height", "")))
+        post_var = tk.StringVar(value=str(cage.get("post_height", "")))
+    
+        make_row(form, "Level:",                        lev_var)
+        make_row(form, f"Ant height ({unit_lbl}):",     ant_var)
+        make_row(form, f"Post height ({unit_lbl}):",    post_var)
+    
+        # Lordosis is auto-computed — read-only display
+        lord_row = tk.Frame(form)
+        lord_row.pack(fill="x", pady=3)
+        tk.Label(lord_row, text="Lordosis (°):", width=22, anchor="w").pack(side="left")
+        tk.Label(lord_row, text=f"{cage.get('lordosis', '—')}°  (auto-computed)",
+                 fg="gray").pack(side="left")
+    
+        status_var = tk.StringVar()
+        tk.Label(dlg, textvariable=status_var, fg="red", font=("Arial", 8)).pack(pady=2)
+    
+        def on_apply():
+            try:
+                new_ant   = float(ant_var.get())
+                new_post  = float(post_var.get())
+                new_level = lev_var.get().strip()
+            except ValueError:
+                status_var.set("Enter valid numeric heights.")
+                return
+            if new_ant <= 0 or new_post <= 0:
+                status_var.set("Heights must be > 0.")
+                return
+            dlg.destroy()
+            self._resize_applied_cage(index, new_ant, new_post, new_level)
+    
+        btn = tk.Frame(dlg)
+        btn.pack(pady=10)
+        tk.Button(btn, text="Apply", command=on_apply,
+                  bg="#4CAF50", fg="white", width=10,
+                  font=("Arial", 9, "bold")).pack(side="left", padx=6)
+        tk.Button(btn, text="Cancel", command=dlg.destroy, width=10).pack(side="left", padx=6)
+    
+        dlg.bind("<Return>", lambda e: on_apply())
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+    
+    def _resize_applied_cage(self, index, new_ant_h, new_post_h, new_level):
+        """
+        Solve for rotation_deg and paste_y that produce the desired
+        anterior and posterior heights, then reapply all transforms.
+    
+        Constraint equations (sign=1 → sup above inf in screen coords):
+            ant_h_px  = py  - (rot_sa_y + paste_y)          ... (A)
+            post_h_px = ipy - (rot_sp_y + paste_y)          ... (B)
+        (B)-(A) eliminates paste_y:
+            A_c·sin(θ) + B_c·cos(θ) = (ipy-py) - (post_h_px - ant_h_px)
+        Solved as R·sin(θ+φ) = C → two candidates; pick closest to current.
+        paste_y derived from (A); must be stored as int for PIL.
+        """
+        try:
+            cage = self.applied_cages[index]
+            ps   = self.pixel_spacing[1] if self.is_calibrated else 1.0
+    
+            px,  py  = cage["inf_ant"]
+            ipx, ipy = cage["inf_post"]
+            dx_sa = cage["sup_ant"][0]  - px;  dy_sa = cage["sup_ant"][1]  - py
+            dx_sp = cage["sup_post"][0] - px;  dy_sp = cage["sup_post"][1] - py
+    
+            ant_h_px  = new_ant_h  / ps
+            post_h_px = new_post_h / ps
+    
+            # ── Solve for rotation θ ────────────────────────────────────────────
+            A_c   = dx_sp - dx_sa
+            B_c   = dy_sp - dy_sa
+            C_val = (ipy - py) - (post_h_px - ant_h_px)
+            R     = math.hypot(A_c, B_c)
+    
+            if R < 1e-6:
+                theta = math.radians(cage["rotation_deg"])
+            else:
+                ratio = max(-1.0, min(1.0, C_val / R))
+                phi   = math.atan2(B_c, A_c)
+                t1    = math.asin(ratio) - phi
+                t2    = math.pi - math.asin(ratio) - phi
+                # Normalise to (-π, π] and pick candidate closest to current rotation
+                t1 = (t1 + math.pi) % (2 * math.pi) - math.pi
+                t2 = (t2 + math.pi) % (2 * math.pi) - math.pi
+                cur   = math.radians(cage["rotation_deg"])
+                theta = t1 if abs(t1 - cur) <= abs(t2 - cur) else t2
+    
+            sin_t = math.sin(theta)
+            cos_t = math.cos(theta)
+    
+            # ── Derive paste_y from ant-height constraint ────────────────────────
+            # ant_h_px = py - (rot_sa_y + paste_y)
+            # paste_y  = (py - ant_h_px) - rot_sa_y
+            rot_sa_y    = py + dx_sa * sin_t + dy_sa * cos_t
+            paste_y     = int(round((py - ant_h_px) - rot_sa_y))   # ← PIL requires int
+    
+            # ── Recompute actual achieved dimensions ─────────────────────────────
+            rot_sp_y    = py + dx_sp * sin_t + dy_sp * cos_t
+            final_sa_y  = rot_sa_y + paste_y
+            final_sp_y  = rot_sp_y + paste_y
+    
+            actual_ant  = round(abs(py  - final_sa_y) * ps, 1)
+            actual_post = round(abs(ipy - final_sp_y) * ps, 1)
+    
+            # Lordosis from the resulting superior endplate vector
+            rot_sa_x = px + dx_sa * cos_t - dy_sa * sin_t
+            rot_sp_x = px + dx_sp * cos_t - dy_sp * sin_t
+            final_sa = (rot_sa_x, final_sa_y)
+            final_sp = (rot_sp_x, final_sp_y)
+            inf_v = (ipx - px, ipy - py)
+            sup_v = (final_sp[0] - final_sa[0], final_sp[1] - final_sa[1])
+            m1, m2 = math.hypot(*inf_v), math.hypot(*sup_v)
+            if m1 > 0 and m2 > 0:
+                cos_ang  = max(-1.0, min(1.0,
+                    (inf_v[0]*sup_v[0] + inf_v[1]*sup_v[1]) / (m1 * m2)))
+                new_lord = round(math.degrees(math.acos(cos_ang)), 1)
+            else:
+                new_lord = 0.0
+    
+            # ── Commit ──────────────────────────────────────────────────────────
+            cage["rotation_deg"] = math.degrees(theta)
+            cage["paste_y"]      = paste_y          # int
+            cage["ant_height"]   = actual_ant
+            cage["post_height"]  = actual_post
+            cage["lordosis"]     = new_lord
+            cage["level"]        = new_level
+    
+            self._apply_all_transforms()
+            self.display_image()
+            self.update_measurements(estimated=False)
+            
+            # Ensure the estimated section is visible, then update it with change indicators
+            if hasattr(self, 'estimated_label'):
+                self.estimated_label.pack(pady=(20, 5))
+            if hasattr(self, 'estimated_container'):
+                self.estimated_container.pack(fill="x", padx=5, pady=5)
+            self.update_measurements(estimated=True)
+    
+            self.update_implant_summary()
+    
+            u = cage["unit"]
+            self.show_status(
+                f"Cage at {new_level} updated: "
+                f"{actual_ant}{u} ant / {actual_post}{u} post / {new_lord}°",
+                "success"
+            )
+    
+        except Exception as e:
+            self.show_status(f"Cage resize error: {e}", "error")
+    
     def reset_all_cages(self):
         """Remove all cage transforms and return to post-osteotomy state."""
         self.applied_cages     = []
@@ -3063,6 +3239,11 @@ class SpineForgePlanner:
                     command=lambda idx=orig_idx: self.delete_applied_cage(idx),
                     bg="white", fg="red", bd=0, font=("Arial", 9, "bold")
                 ).pack(side="right")
+                tk.Button(
+                    row, text="✎",
+                    command=lambda idx=orig_idx: self.edit_applied_cage(idx),
+                    bg="white", fg="#1565C0", bd=0, font=("Arial", 9, "bold")
+                ).pack(side="right", padx=(0, 4))
                 
             # Add osteotomies to summary
         if self.osteotomies:
