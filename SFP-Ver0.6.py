@@ -1016,6 +1016,7 @@ class SpineForgePlanner:
         self.reset_cage_btn.config(state="normal")
     
         self.display_image()
+        self.update_measurements()
         self.update_measurements(estimated=True)
         self.update_implant_summary()
     
@@ -1032,6 +1033,7 @@ class SpineForgePlanner:
             removed = self.applied_cages.pop(index)
             self._apply_all_transforms()
             self.display_image()
+            self.update_measurements()
             self.update_measurements(estimated=True)
             self.update_implant_summary()
             self.show_status(f"Cage at {removed['level']} removed.", "info")
@@ -1372,7 +1374,7 @@ class SpineForgePlanner:
     def create_outlined_text(self, x, y, text, fill_color, font_size, tags):
         """Create text with white/black outline for better visibility on any background"""
         # Create text shadow/outline using multiple offsets
-        offsets = [(-1,-1), (1,-1), (-1,1), (1,1)]
+        offsets = [(0,-1), (0,1), (-1,0), (1,0)]
         outline_items = []
         
         # Create outlines first (they'll be behind the main text)
@@ -1380,7 +1382,7 @@ class SpineForgePlanner:
             outline = self.canvas.create_text(
                 x+dx, y+dy, 
                 text=text, 
-                fill='white' if fill_color != 'white' else 'black',
+                fill='black',
                 font=('Arial', font_size, 'bold'),
                 anchor="nw",
                 tags=tags
@@ -3190,7 +3192,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 120, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:CBVA", "bg")
             )
             
@@ -3238,7 +3240,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 180, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:C2-C7Lordosis", "bg")
             )
             
@@ -3264,7 +3266,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 150, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:C2-C7SVA", "bg")
             )
             
@@ -3294,7 +3296,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 120, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:T1Slope", "bg")
             )
             
@@ -3338,7 +3340,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 180, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:LumbarLordosis", "bg")
             )
             
@@ -3372,7 +3374,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 150, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:SacralSlope", "bg")
             )
             
@@ -3479,7 +3481,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 130, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:PelvicTilt", "bg")
             )
             
@@ -3501,7 +3503,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 180, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:PelvicIncidence", "bg")
             )
             
@@ -3567,7 +3569,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 120, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:SVA", "bg")
             )
             
