@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv_mac/
+venv/
+env/
+.venv/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Packaging
+*.egg-info/
+*.egg
+.eggs/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+*.AppleDouble
+*.LSOverride
+
+# DMG dosyalari
+# *.dmg
+
+# Windows executable (kaynak olarak takip edilmez)
+*.exe
+
+# Buyuk test dosyalari
+*.dcm
+*.stl
+
+# Build log
+build_log.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

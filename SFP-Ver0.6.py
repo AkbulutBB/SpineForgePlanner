@@ -1016,6 +1016,7 @@ class SpineForgePlanner:
         self.reset_cage_btn.config(state="normal")
     
         self.display_image()
+        self.update_measurements()
         self.update_measurements(estimated=True)
         self.update_implant_summary()
     
@@ -1032,11 +1033,188 @@ class SpineForgePlanner:
             removed = self.applied_cages.pop(index)
             self._apply_all_transforms()
             self.display_image()
+            self.update_measurements()
             self.update_measurements(estimated=True)
             self.update_implant_summary()
             self.show_status(f"Cage at {removed['level']} removed.", "info")
             if not self.applied_cages:
                 self.reset_cage_btn.config(state="disabled")
+    
+    def edit_applied_cage(self, index):
+        """Open a dialog to edit an applied cage's anterior/posterior height and level."""
+        if index < 0 or index >= len(self.applied_cages):
+            return
+    
+        cage     = self.applied_cages[index]
+        unit_lbl = cage.get("unit", " mm").strip() or "mm"
+    
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"Edit Cage — {cage.get('level', '')}")
+        dlg.geometry("340x260")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.focus_set()
+    
+        tk.Label(dlg, text=f"Editing cage at: {cage.get('level', '')}",
+                 font=("Arial", 10, "bold")).pack(pady=(12, 6))
+    
+        form = tk.Frame(dlg)
+        form.pack(padx=20, fill="x")
+    
+        def make_row(parent, label_text, var):
+            f = tk.Frame(parent)
+            f.pack(fill="x", pady=3)
+            tk.Label(f, text=label_text, width=22, anchor="w").pack(side="left")
+            tk.Entry(f, textvariable=var, width=10).pack(side="left")
+    
+        lev_var  = tk.StringVar(value=cage.get("level", ""))
+        ant_var  = tk.StringVar(value=str(cage.get("ant_height", "")))
+        post_var = tk.StringVar(value=str(cage.get("post_height", "")))
+    
+        make_row(form, "Level:",                        lev_var)
+        make_row(form, f"Ant height ({unit_lbl}):",     ant_var)
+        make_row(form, f"Post height ({unit_lbl}):",    post_var)
+    
+        # Lordosis is auto-computed — read-only display
+        lord_row = tk.Frame(form)
+        lord_row.pack(fill="x", pady=3)
+        tk.Label(lord_row, text="Lordosis (°):", width=22, anchor="w").pack(side="left")
+        tk.Label(lord_row, text=f"{cage.get('lordosis', '—')}°  (auto-computed)",
+                 fg="gray").pack(side="left")
+    
+        status_var = tk.StringVar()
+        tk.Label(dlg, textvariable=status_var, fg="red", font=("Arial", 8)).pack(pady=2)
+    
+        def on_apply():
+            try:
+                new_ant   = float(ant_var.get())
+                new_post  = float(post_var.get())
+                new_level = lev_var.get().strip()
+            except ValueError:
+                status_var.set("Enter valid numeric heights.")
+                return
+            if new_ant <= 0 or new_post <= 0:
+                status_var.set("Heights must be > 0.")
+                return
+            dlg.destroy()
+            self._resize_applied_cage(index, new_ant, new_post, new_level)
+    
+        btn = tk.Frame(dlg)
+        btn.pack(pady=10)
+        tk.Button(btn, text="Apply", command=on_apply,
+                  bg="#4CAF50", fg="white", width=10,
+                  font=("Arial", 9, "bold")).pack(side="left", padx=6)
+        tk.Button(btn, text="Cancel", command=dlg.destroy, width=10).pack(side="left", padx=6)
+    
+        dlg.bind("<Return>", lambda e: on_apply())
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+    
+    def _resize_applied_cage(self, index, new_ant_h, new_post_h, new_level):
+        """
+        Solve for rotation_deg and paste_y that produce the desired
+        anterior and posterior heights, then reapply all transforms.
+    
+        Constraint equations (sign=1 → sup above inf in screen coords):
+            ant_h_px  = py  - (rot_sa_y + paste_y)          ... (A)
+            post_h_px = ipy - (rot_sp_y + paste_y)          ... (B)
+        (B)-(A) eliminates paste_y:
+            A_c·sin(θ) + B_c·cos(θ) = (ipy-py) - (post_h_px - ant_h_px)
+        Solved as R·sin(θ+φ) = C → two candidates; pick closest to current.
+        paste_y derived from (A); must be stored as int for PIL.
+        """
+        try:
+            cage = self.applied_cages[index]
+            ps   = self.pixel_spacing[1] if self.is_calibrated else 1.0
+    
+            px,  py  = cage["inf_ant"]
+            ipx, ipy = cage["inf_post"]
+            dx_sa = cage["sup_ant"][0]  - px;  dy_sa = cage["sup_ant"][1]  - py
+            dx_sp = cage["sup_post"][0] - px;  dy_sp = cage["sup_post"][1] - py
+    
+            ant_h_px  = new_ant_h  / ps
+            post_h_px = new_post_h / ps
+    
+            # ── Solve for rotation θ ────────────────────────────────────────────
+            A_c   = dx_sp - dx_sa
+            B_c   = dy_sp - dy_sa
+            C_val = (ipy - py) - (post_h_px - ant_h_px)
+            R     = math.hypot(A_c, B_c)
+    
+            if R < 1e-6:
+                theta = math.radians(cage["rotation_deg"])
+            else:
+                ratio = max(-1.0, min(1.0, C_val / R))
+                phi   = math.atan2(B_c, A_c)
+                t1    = math.asin(ratio) - phi
+                t2    = math.pi - math.asin(ratio) - phi
+                # Normalise to (-π, π] and pick candidate closest to current rotation
+                t1 = (t1 + math.pi) % (2 * math.pi) - math.pi
+                t2 = (t2 + math.pi) % (2 * math.pi) - math.pi
+                cur   = math.radians(cage["rotation_deg"])
+                theta = t1 if abs(t1 - cur) <= abs(t2 - cur) else t2
+    
+            sin_t = math.sin(theta)
+            cos_t = math.cos(theta)
+    
+            # ── Derive paste_y from ant-height constraint ────────────────────────
+            # ant_h_px = py - (rot_sa_y + paste_y)
+            # paste_y  = (py - ant_h_px) - rot_sa_y
+            rot_sa_y    = py + dx_sa * sin_t + dy_sa * cos_t
+            paste_y     = int(round((py - ant_h_px) - rot_sa_y))   # ← PIL requires int
+    
+            # ── Recompute actual achieved dimensions ─────────────────────────────
+            rot_sp_y    = py + dx_sp * sin_t + dy_sp * cos_t
+            final_sa_y  = rot_sa_y + paste_y
+            final_sp_y  = rot_sp_y + paste_y
+    
+            actual_ant  = round(abs(py  - final_sa_y) * ps, 1)
+            actual_post = round(abs(ipy - final_sp_y) * ps, 1)
+    
+            # Lordosis from the resulting superior endplate vector
+            rot_sa_x = px + dx_sa * cos_t - dy_sa * sin_t
+            rot_sp_x = px + dx_sp * cos_t - dy_sp * sin_t
+            final_sa = (rot_sa_x, final_sa_y)
+            final_sp = (rot_sp_x, final_sp_y)
+            inf_v = (ipx - px, ipy - py)
+            sup_v = (final_sp[0] - final_sa[0], final_sp[1] - final_sa[1])
+            m1, m2 = math.hypot(*inf_v), math.hypot(*sup_v)
+            if m1 > 0 and m2 > 0:
+                cos_ang  = max(-1.0, min(1.0,
+                    (inf_v[0]*sup_v[0] + inf_v[1]*sup_v[1]) / (m1 * m2)))
+                new_lord = round(math.degrees(math.acos(cos_ang)), 1)
+            else:
+                new_lord = 0.0
+    
+            # ── Commit ──────────────────────────────────────────────────────────
+            cage["rotation_deg"] = math.degrees(theta)
+            cage["paste_y"]      = paste_y          # int
+            cage["ant_height"]   = actual_ant
+            cage["post_height"]  = actual_post
+            cage["lordosis"]     = new_lord
+            cage["level"]        = new_level
+    
+            self._apply_all_transforms()
+            self.display_image()
+            self.update_measurements(estimated=False)
+            
+            # Ensure the estimated section is visible, then update it with change indicators
+            if hasattr(self, 'estimated_label'):
+                self.estimated_label.pack(pady=(20, 5))
+            if hasattr(self, 'estimated_container'):
+                self.estimated_container.pack(fill="x", padx=5, pady=5)
+            self.update_measurements(estimated=True)
+    
+            self.update_implant_summary()
+    
+            u = cage["unit"]
+            self.show_status(
+                f"Cage at {new_level} updated: "
+                f"{actual_ant}{u} ant / {actual_post}{u} post / {new_lord}°",
+                "success"
+            )
+    
+        except Exception as e:
+            self.show_status(f"Cage resize error: {e}", "error")
     
     def reset_all_cages(self):
         """Remove all cage transforms and return to post-osteotomy state."""
@@ -1372,7 +1550,7 @@ class SpineForgePlanner:
     def create_outlined_text(self, x, y, text, fill_color, font_size, tags):
         """Create text with white/black outline for better visibility on any background"""
         # Create text shadow/outline using multiple offsets
-        offsets = [(-1,-1), (1,-1), (-1,1), (1,1)]
+        offsets = [(0,-1), (0,1), (-1,0), (1,0)]
         outline_items = []
         
         # Create outlines first (they'll be behind the main text)
@@ -1380,7 +1558,7 @@ class SpineForgePlanner:
             outline = self.canvas.create_text(
                 x+dx, y+dy, 
                 text=text, 
-                fill='white' if fill_color != 'white' else 'black',
+                fill='black',
                 font=('Arial', font_size, 'bold'),
                 anchor="nw",
                 tags=tags
@@ -3061,6 +3239,11 @@ class SpineForgePlanner:
                     command=lambda idx=orig_idx: self.delete_applied_cage(idx),
                     bg="white", fg="red", bd=0, font=("Arial", 9, "bold")
                 ).pack(side="right")
+                tk.Button(
+                    row, text="✎",
+                    command=lambda idx=orig_idx: self.edit_applied_cage(idx),
+                    bg="white", fg="#1565C0", bd=0, font=("Arial", 9, "bold")
+                ).pack(side="right", padx=(0, 4))
                 
             # Add osteotomies to summary
         if self.osteotomies:
@@ -3190,7 +3373,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 120, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:CBVA", "bg")
             )
             
@@ -3238,7 +3421,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 180, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:C2-C7Lordosis", "bg")
             )
             
@@ -3264,7 +3447,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 150, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:C2-C7SVA", "bg")
             )
             
@@ -3294,7 +3477,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 120, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:T1Slope", "bg")
             )
             
@@ -3338,7 +3521,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 180, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:LumbarLordosis", "bg")
             )
             
@@ -3372,7 +3555,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 150, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:SacralSlope", "bg")
             )
             
@@ -3464,7 +3647,8 @@ class SpineForgePlanner:
             
             # Calculate PI as angle between these vectors
             cos_pi = np.clip(np.dot(sacral_perp, hip_vec), -1.0, 1.0)
-            pi_angle = math.degrees(math.acos(cos_pi))
+            pi_angle = math.degrees(math.acos(abs(cos_pi)))
+            pi_angle = min(pi_angle, 180 - pi_angle)
             
             # Store midpoint for PT label
             pt_x, pt_y = (bicoxo_x + s1_mid_x) / 2, (bicoxo_y + s1_mid_y) / 2
@@ -3478,7 +3662,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 130, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:PelvicTilt", "bg")
             )
             
@@ -3500,7 +3684,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 180, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:PelvicIncidence", "bg")
             )
             
@@ -3566,7 +3750,7 @@ class SpineForgePlanner:
             bg = self.canvas.create_rectangle(
                 label_x - 5, label_y - 5, 
                 label_x + 120, label_y + 20, 
-                fill='black', outline='white', width=1, stipple='gray50', 
+                fill='white', outline='black', width=1, stipple='gray50', 
                 tags=("label:SVA", "bg")
             )
             
@@ -3637,12 +3821,17 @@ class SpineForgePlanner:
                 removed = self.osteotomies.pop(index)
                 self.show_status(f"Osteotomy at {removed['level']} deleted.", "info")
                 
-                # Reapply all remaining osteotomies
+                # Reapply osteotomies then cages
                 if self.osteotomies:
-                    self.apply_all_osteotomies()
+                    self._apply_all_transforms()
                 else:
-                    # No osteotomies left, restore original
                     self.reset_all_osteotomies()
+                    # Reapply cages on top of clean state
+                    for cage in self.applied_cages:
+                        if cage.get("applied"):
+                            self.image, self.landmarks = self.apply_single_cage_transform(
+                                self.image, self.landmarks, cage
+                            )
                 
                 self.update_implant_summary()
                 self.display_image()
@@ -3718,7 +3907,7 @@ class SpineForgePlanner:
         self.current_osteotomy = None
         
         # Apply ALL osteotomies fresh
-        self.apply_all_osteotomies()
+        self._apply_all_transforms()
         
         # Reset button states
         self.apply_osteotomy_button.config(state="disabled")
@@ -4265,11 +4454,18 @@ class SpineForgePlanner:
                     sx2, sy2 = scaled((x2, y2))
                     self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=float(diameter))
             
-            # Add text with rod info
+            # Add text with rod info (diameter + arc length)
+            length_mm = self.rod_line.get("length_mm", None)
+            length_str = f" × {length_mm:.0f}mm" if length_mm is not None else ""
             x, y = points[0]
             sx, sy = scaled((x, y))
-            self.canvas.create_text(sx, sy-10, text=f"{side} Rod Ø{diameter}mm", fill=color, anchor="sw")
-    
+            self.canvas.create_text(
+                sx, sy - 10,
+                text=f"{side} Rod Ø{diameter}mm{length_str}",
+                fill=color, anchor="sw", font=('Arial', 9, 'bold')
+            )
+            
+        
     def calculate_angle(self, p1, p2):
         dx = (p2[0] - p1[0]) * self.pixel_spacing[1]
         dy = (p2[1] - p1[1]) * self.pixel_spacing[0]
@@ -4438,16 +4634,38 @@ class SpineForgePlanner:
         # Extract just the points in the sorted order
         rod_points = [point for point, _ in screw_heads]
         
+        # Calculate arc length of rod in mm using spline (or linear fallback)
+        rod_length_mm = 0.0
+        pts = np.array(rod_points)
+        unique_pts = len(np.unique(pts, axis=0))
+        if unique_pts >= 3:
+            tck, _ = splprep([pts[:, 0], pts[:, 1]], s=0, k=min(unique_pts - 1, 3))
+            u_dense = np.linspace(0, 1, 500)
+            sampled = np.array(splev(u_dense, tck)).T
+        else:
+            sampled = pts
+        diffs = np.diff(sampled, axis=0)
+        # Convert pixel distances to mm using pixel_spacing
+        segment_lengths = np.sqrt(
+            (diffs[:, 0] * self.pixel_spacing[1]) ** 2 +
+            (diffs[:, 1] * self.pixel_spacing[0]) ** 2
+        )
+        rod_length_mm = float(np.sum(segment_lengths))
+
         # Create the rod line data
         self.rod_line = {
             "points": rod_points,
             "side": self.rod_side.get(),
-            "diameter": self.rod_diameter.get()
+            "diameter": self.rod_diameter.get(),
+            "length_mm": rod_length_mm
         }
-        
+
         # Display the rod
         self.display_image()
-        self.show_status(f"Rod generated: {self.rod_side.get()} side, {self.rod_diameter.get()}mm diameter", "success")
+        self.show_status(
+            f"Rod generated: {self.rod_side.get()} side, Ø{self.rod_diameter.get()}mm × {rod_length_mm:.0f}mm",
+            "success"
+        )
         
     def export_rod_as_stl(self):
         """Export the rod model as STL for 3D printing"""
@@ -4502,10 +4720,14 @@ class SpineForgePlanner:
                             new_points[i] = (1 - weight) * points[idx_low] + weight * points[idx_high]
         
                 
+                # Convert pixel coordinates to real-world mm before building mesh
+                new_points_mm = new_points.copy()
+                new_points_mm[:, 0] *= self.pixel_spacing[1]  # x → mm
+                new_points_mm[:, 1] *= self.pixel_spacing[0]  # y → mm
+
                 # Create a 3D representation (add z-coordinate)
-                # Here we're creating a simple 2.5D model since we only have a 2D image
-                z_coord = np.zeros(len(new_points))
-                points_3d = np.column_stack((new_points, z_coord))
+                z_coord = np.zeros(len(new_points_mm))
+                points_3d = np.column_stack((new_points_mm, z_coord))
                 
                 # Create a cylinder mesh along the spline
                 # For simplicity, we'll create a rough approximation with triangles
