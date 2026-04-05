@@ -18,8 +18,10 @@ import numpy as np
 from PIL import Image, ImageTk, ImageEnhance
 import math
 import pyperclip
-import ctypes
-from ctypes import wintypes
+import platform as _platform
+if _platform.system() == "Windows":
+    import ctypes
+    from ctypes import wintypes
 import os
 from stl import mesh
 from scipy.interpolate import splprep, splev
@@ -311,7 +313,7 @@ class SpineForgePlanner:
         tk.Label(measurement_tools_frame, 
                  text="Length: Click two points to measure distance\n"
                  "Angle: Click three points to measure angle\n"
-                 "Ctrl+Alt+Click to drag the points",
+                 f"{'Cmd' if _platform.system() == 'Darwin' else 'Ctrl'}+Alt+Click to drag the points",
                  bg="lightgray", justify="left", font=("Arial", 8)).pack(anchor="w", padx=5)
                 
         # Rod Export Options
@@ -462,9 +464,15 @@ class SpineForgePlanner:
         self.calib_status.pack(fill="x")
         
         def _on_sidebar_mousewheel(event):
-            right_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            if _platform.system() == "Darwin":
+                right_canvas.yview_scroll(int(-1 * event.delta), "units")
+            else:
+                right_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         
         right_canvas.bind("<MouseWheel>", _on_sidebar_mousewheel)
+        if _platform.system() == "Linux":
+            right_canvas.bind("<Button-4>", lambda e: right_canvas.yview_scroll(-1, "units"))
+            right_canvas.bind("<Button-5>", lambda e: right_canvas.yview_scroll(1, "units"))
 
         
         # Respond to canvas resizing
@@ -478,9 +486,15 @@ class SpineForgePlanner:
         def _on_mousewheel(event):
             widget = event.widget
             if widget == measurements_canvas:
-                measurements_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-                
+                if _platform.system() == "Darwin":
+                    measurements_canvas.yview_scroll(int(-1 * event.delta), "units")
+                else:
+                    measurements_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        
         measurements_canvas.bind("<MouseWheel>", _on_mousewheel)
+        if _platform.system() == "Linux":
+            measurements_canvas.bind("<Button-4>", lambda e: measurements_canvas.yview_scroll(-1, "units"))
+            measurements_canvas.bind("<Button-5>", lambda e: measurements_canvas.yview_scroll(1, "units"))
         
         # Add measurements
         measurement_names = [
@@ -581,44 +595,79 @@ class SpineForgePlanner:
 
         # Now set up the event bindings
         self.canvas.bind("<Button-1>", self.on_click)
+        self._setup_mouse_bindings()
+        self.info_label.config(text="Load a DICOM image to begin")
+
+    def _setup_mouse_bindings(self):
+        """
+        Platform-aware mouse binding setup.
+        Handles macOS / Windows / Linux differences in button numbering,
+        modifier key behaviour, and absence of a middle mouse button on Mac.
+        """
+        system = _platform.system()
+    
+        # ── Zoom ──────────────────────────────────────────────────────────────
+        # macOS and Windows both fire <MouseWheel>; Linux uses Button-4/5.
         self.canvas.bind("<MouseWheel>", self.on_zoom)
-        # Support for Linux and Mac which use <Button-4> and <Button-5> instead of MouseWheel
-        self.canvas.bind("<Button-4>", lambda e: self.on_zoom(e, delta=120))
-        self.canvas.bind("<Button-5>", lambda e: self.on_zoom(e, delta=-120))
-        self.canvas.bind("<B2-Motion>", self.on_pan)
-        self.canvas.bind("<ButtonPress-2>", self.start_pan)
-        
-        # Bindings for dragging text labels
-        self.canvas.bind("<B3-Motion>", self.on_drag_label)
-        self.canvas.bind("<ButtonPress-3>", self.start_drag_label)
-        self.canvas.bind("<ButtonRelease-3>", self.stop_drag_label)
-        
-        # Add screw dragging bindings (using Ctrl+click to avoid conflicts)
-        self.canvas.bind("<Control-Button-1>", self.start_drag_screw)
-        self.canvas.bind("<Control-B1-Motion>", self.on_drag_screw)
-        self.canvas.bind("<Control-ButtonRelease-1>", self.stop_drag_screw)
-        
-        # Add cage dragging bindings
+        if system == "Linux":
+            self.canvas.bind("<Button-4>", lambda e: self.on_zoom(e, delta=120))
+            self.canvas.bind("<Button-5>", lambda e: self.on_zoom(e, delta=-120))
+    
+        # ── Pan ───────────────────────────────────────────────────────────────
+        if system == "Darwin":
+            # macOS has no middle mouse button on trackpad/Magic Mouse.
+            # Option (Alt) + left drag is used as the pan gesture instead.
+            self.canvas.bind("<Option-ButtonPress-1>", self.start_pan)
+            self.canvas.bind("<Option-B1-Motion>", self.on_pan)
+        else:
+            # Windows / Linux: middle mouse button
+            self.canvas.bind("<ButtonPress-2>", self.start_pan)
+            self.canvas.bind("<B2-Motion>", self.on_pan)
+    
+        # ── Label drag (right-click drag) ─────────────────────────────────────
+        if system == "Darwin":
+            # Right-click fires Button-2 on older macOS Tk builds, Button-3 on newer.
+            # Bind both to be safe.
+            for btn in ("2", "3"):
+                self.canvas.bind(f"<ButtonPress-{btn}>", self.start_drag_label)
+                self.canvas.bind(f"<B{btn}-Motion>", self.on_drag_label)
+                self.canvas.bind(f"<ButtonRelease-{btn}>", self.stop_drag_label)
+        else:
+            self.canvas.bind("<ButtonPress-3>", self.start_drag_label)
+            self.canvas.bind("<B3-Motion>", self.on_drag_label)
+            self.canvas.bind("<ButtonRelease-3>", self.stop_drag_label)
+    
+        # ── Screw drag ────────────────────────────────────────────────────────
+        if system == "Darwin":
+            # Control+Click on macOS = right-click at OS level; Tkinter never sees it.
+            # Use Command (Meta) instead.
+            self.canvas.bind("<Command-Button-1>", self.start_drag_screw)
+            self.canvas.bind("<Command-B1-Motion>", self.on_drag_screw)
+            self.canvas.bind("<Command-ButtonRelease-1>", self.stop_drag_screw)
+        else:
+            self.canvas.bind("<Control-Button-1>", self.start_drag_screw)
+            self.canvas.bind("<Control-B1-Motion>", self.on_drag_screw)
+            self.canvas.bind("<Control-ButtonRelease-1>", self.stop_drag_screw)
+    
+        # ── Cage drag (Alt/Option + left click) ───────────────────────────────
+        # <Alt-Button-1> maps correctly to Option+click on macOS in Tkinter.
         self.canvas.bind("<Alt-Button-1>", self.start_drag_cage)
         self.canvas.bind("<Alt-B1-Motion>", self.on_drag_cage)
         self.canvas.bind("<Alt-ButtonRelease-1>", self.stop_drag_cage)
-        
-        # Cage resize bindings (Shift+Click to select and show handles)
+    
+        # ── Cage resize (Shift + left click) ──────────────────────────────────
         self.canvas.bind("<Shift-Button-1>", self.select_cage_for_resize)
         self.canvas.bind("<Button-1>", self.handle_cage_interaction, add="+")
         self.canvas.bind("<B1-Motion>", self.handle_cage_drag_or_resize, add="+")
         self.canvas.bind("<ButtonRelease-1>", self.handle_cage_release, add="+")
-        
-        # Add measurement dragging bindings (add this after the existing cage bindings)
+    
+        # ── Measurement drag ──────────────────────────────────────────────────
         self.canvas.bind("<Control-Alt-Button-1>", self.start_drag_measurement)
         self.canvas.bind("<Control-Alt-B1-Motion>", self.on_drag_measurement)
         self.canvas.bind("<Control-Alt-ButtonRelease-1>", self.stop_drag_measurement)
-        
-        self.canvas.bind("<Motion>", self.on_mouse_motion)
-        
-        # Set initial instruction
-        self.info_label.config(text="Load a DICOM image to begin")
-
+    
+        # ── Motion (hover tooltips) ───────────────────────────────────────────
+        self.canvas.bind("<Motion>", self.on_mouse_motion)    
 
     # ──────────────────────────────────────────────────────────────────────────────
     # C)  New / replacement methods  –  paste into SpineForgePlanner class
@@ -3266,9 +3315,15 @@ class SpineForgePlanner:
         
         # Add mousewheel scrolling
         def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            if _platform.system() == "Darwin":
+                canvas.yview_scroll(int(-1 * event.delta), "units")
+            else:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        if _platform.system() == "Linux":
+            canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
+            canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
         
     def delete_implant(self, implant_type, index):
         """Remove an implant from the list and update display"""
@@ -4864,7 +4919,10 @@ class SpineForgePlanner:
         Returns:
             PIL.Image: The captured canvas image in RGB format, ready for saving
         """
-        # Constants for Windows GDI operations
+        if _platform.system() != "Windows":
+            raise RuntimeError("GDI screenshot capture is only supported on Windows.")
+        
+                               # Constants for Windows GDI operations
         SRCCOPY = 0x00CC0020  # Copy source rectangle directly to destination rectangle
 
         # Step 1: Get canvas HWND (window handle) and dimensions
@@ -5052,13 +5110,12 @@ class SpineForgePlanner:
         self.display_image()
 
     def start_pan(self, event):
-        """
-        Start panning operation when middle mouse button is pressed.
-        
-        Args:
-            event: Mouse button press event containing position information
-        """
-        # Store initial position for calculating pan offset
+        # On macOS, Option+click doubles as cage drag — yield to cage if cursor is over one
+        if _platform.system() == "Darwin":
+            x = (event.x - self.offset[0]) / self.zoom
+            y = (event.y - self.offset[1]) / self.zoom
+            if any(self.point_in_quad(x, y, c["corners"]) for c in self.cages):
+                return
         self.pan_start = [event.x, event.y]
 
     def on_pan(self, event):
