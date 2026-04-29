@@ -41,6 +41,9 @@ dist/
 *.dcm
 *.stl
 
+# Build script (contains credentials, keep local only)
+build_mac.sh
+
 # Build log
 build_log.txt
 
